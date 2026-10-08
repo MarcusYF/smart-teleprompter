@@ -1,0 +1,13 @@
+{
+  "authoritative_state": ["package.json", "docs/VALIDATION.md"],
+  "paths": {
+    "extensions": "PROJECT_MAINTENANCE.md",
+    "handoff": "HANDOFF.md",
+    "overview": "PROJECT.md",
+    "records": "project-memory/records",
+    "snapshots": "project-memory/snapshots",
+    "wiki": "PROJECT_WIKI.md"
+  },
+  "schema_version": 1,
+  "snapshot_files": []
+}

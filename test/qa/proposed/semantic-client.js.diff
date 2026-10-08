@@ -1,0 +1,31 @@
+--- a/public/lib/semantic-client.js
++++ b/public/lib/semantic-client.js
+@@ -58,6 +58,9 @@
+       const first = doc.sents[para.sentStart]?.phStart;
+       if (first !== undefined && first >= hi && cands.length < 60) cands.push({ id: `P${first}`, text: doc.phrases[first].text });
+     }
++    // the padded window split into the words said since leaving the script
++    // and the script words read just before them (context for Jev)
++    const parts = f.offScriptParts ? f.offScriptParts() : { lead: '', speech: off };
+     return {
+       lang: doc.lang,
+       before: textOfPhrases(doc, cur - 2, cur),
+@@ -65,6 +68,9 @@
+       sentence: ph ? doc.sents[ph.sent].text : '',
+       after: textOfPhrases(doc, cur + 1, cur + 4),
+       offScript: off,
++      speech: parts.speech,
++      leadIn: parts.lead,
++      curId: `P${cur}`,
+       recent: f.recentSpeech(30),
+       candidates: cands,
+     };
+@@ -126,7 +132,7 @@
+             // said in other words: not an omission
+             f.coveredSents.add(si);
+             for (let p = doc.sents[si].phStart; p < doc.sents[si].phEnd; p++) f.skipped.delete(p);
+-          } else if ((r.important ?? 0) >= 0.6 && (!best || r.important > best.p)) {
++          } else if ((r.important ?? 0) >= 0.5 && (!best || r.important > best.p)) {
+             best = { si, p: r.important, text: doc.sents[si].text };
+           }
+         });

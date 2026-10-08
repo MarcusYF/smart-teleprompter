@@ -1,0 +1,28 @@
+{
+  "about": "Skipped-passage cases. `sent` = sentence index in the parsed script (the HEAD client sends whole sentences). important = the audience would miss a key fact, number, definition, step, argument or assignment. `paraphrase` (optional) = the speaker said this sentence in other words instead of skipping it, so no reminder is wanted.",
+  "cases": [
+    {"id": "s-ed-0", "script": "en-demo", "sent": 0, "important": false, "note": "greeting"},
+    {"id": "s-ed-4", "script": "en-demo", "sent": 4, "important": false, "note": "signpost: But there is a catch."},
+    {"id": "s-ed-5", "script": "en-demo", "sent": 5, "important": true, "note": "preferences are noisy, people disagree"},
+    {"id": "s-ed-11", "script": "en-demo", "sent": 11, "important": true, "note": "reward hacking definition"},
+    {"id": "s-ed-14", "script": "en-demo", "sent": 14, "important": false, "note": "Thank you."},
+    {"id": "s-el-2", "script": "en-lecture", "sent": 2, "important": false, "note": "transition: Attention takes a different approach."},
+    {"id": "s-el-6", "script": "en-lecture", "sent": 6, "important": false, "note": "signpost: one technical detail that matters"},
+    {"id": "s-el-7", "script": "en-lecture", "sent": 7, "important": true, "note": "divide by sqrt of key dimension"},
+    {"id": "s-el-16", "script": "en-lecture", "sent": 16, "important": true, "note": "homework assignment"},
+    {"id": "s-zd-0", "script": "zh-demo", "sent": 0, "important": false, "note": "greeting"},
+    {"id": "s-zd-3", "script": "zh-demo", "sent": 3, "important": true, "note": "judgment becomes a training signal"},
+    {"id": "s-zd-4", "script": "zh-demo", "sent": 4, "important": false, "note": "signpost: 但是这里有一个问题"},
+    {"id": "s-zd-12", "script": "zh-demo", "sent": 12, "important": true, "note": "constraint keeps the new model close"},
+    {"id": "s-zd-14", "script": "zh-demo", "sent": 14, "important": false, "note": "谢谢大家"},
+    {"id": "s-zl-1", "script": "zh-lecture", "sent": 1, "important": true, "note": "validation accuracy drops to ~70%"},
+    {"id": "s-zl-2", "script": "zh-lecture", "sent": 2, "important": true, "note": "definition of overfitting"},
+    {"id": "s-zl-11", "script": "zh-lecture", "sent": 11, "important": true, "note": "turn off dropout at test time"},
+    {"id": "s-zl-15", "script": "zh-lecture", "sent": 15, "important": true, "note": "deadline"},
+
+    {"id": "c-ed-5", "script": "en-demo", "sent": 5, "important": true, "paraphrase": "so peoples ratings are all over the place and honestly they just dont agree with each other", "note": "paraphrased, not skipped"},
+    {"id": "c-el-7", "script": "en-lecture", "sent": 7, "important": true, "paraphrase": "so we scale the scores down by the square root of the key size before the soft max", "note": "paraphrased, not skipped"},
+    {"id": "c-zd-12", "script": "zh-demo", "sent": 12, "important": true, "paraphrase": "所以实际上我们会限制一下新模型别让它跑得离原来的模型太远", "note": "paraphrased, not skipped"},
+    {"id": "c-zl-15", "script": "zh-lecture", "sent": 15, "important": true, "paraphrase": "大家记得下周五半夜十二点之前交", "note": "paraphrased, not skipped"}
+  ]
+}

@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>智能提词器</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23111'/><rect x='6' y='9' width='20' height='3' rx='1.5' fill='%23ffd60a'/><rect x='6' y='15' width='14' height='3' rx='1.5' fill='%23ddd'/><rect x='6' y='21' width='17' height='3' rx='1.5' fill='%23777'/></svg>">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app" data-view="editor">
+
+  <!-- ====================================================== editor -->
+  <section id="editor">
+    <header class="bar">
+      <div class="brand"><span class="logo"></span><span data-t="appName"></span></div>
+      <div id="jev-status" class="muted small"></div>
+      <div class="spacer"></div>
+      <button id="btn-ui-lang" class="ghost small">EN</button>
+    </header>
+    <div class="editor-body">
+      <aside class="library">
+        <button id="btn-new" class="block" data-t="newScript"></button>
+        <div class="label" data-t="saved"></div>
+        <div id="script-list"></div>
+        <div class="label" data-t="samples"></div>
+        <button class="block ghost" data-sample="zh-demo.md" data-t="sampleZh"></button>
+        <button class="block ghost" data-sample="en-demo.md" data-t="sampleEn"></button>
+      </aside>
+      <main class="compose">
+        <div class="row">
+          <input id="title" type="text" autocomplete="off">
+          <select id="script-lang">
+            <option value="auto" data-t="langAuto"></option>
+            <option value="zh" data-t="langZh"></option>
+            <option value="en" data-t="langEn"></option>
+          </select>
+          <button id="btn-editor-link" class="ghost link"></button>
+          <button id="btn-import-keynote" class="ghost" data-t="importKeynote"></button>
+          <button id="btn-save" class="ghost" data-t="save"></button>
+          <button id="btn-start" class="primary" data-t="start"></button>
+        </div>
+        <textarea id="script" spellcheck="false"></textarea>
+        <details class="syntax"><summary data-t="syntaxTitle"></summary><div data-th="syntax"></div></details>
+        <div id="editor-msg" class="muted small"></div>
+      </main>
+    </div>
+  </section>
+
+  <!-- ==================================================== prompter -->
+  <section id="prompter" tabindex="-1">
+    <div id="hud-top" class="hud">
+      <div class="hl">
+        <button id="btn-back" class="icon" title="">&#x2190;</button>
+        <button id="btn-mic" class="mic" title=""><span class="dot"></span><span class="lbl" data-t="micStart"></span></button>
+        <canvas id="meter" width="54" height="16"></canvas>
+        <span id="chip-status" class="chip"></span>
+        <span id="chip-sem" class="chip sem" hidden></span>
+      </div>
+      <div class="hc">
+        <div class="seg" id="level-seg"></div>
+        <label id="detail-wrap" class="detail" hidden><span data-t="detail"></span><input id="detail" type="range" min="0" max="1" step="0.05"></label>
+      </div>
+      <div class="hr">
+        <button id="btn-link-keynote" class="link-btn" hidden data-t="linkKeynote"></button>
+        <span id="chip-slide" class="chip" hidden></span>
+        <button id="chip-build" class="chip build" hidden></button>
+        <span id="chip-pace" class="chip mono"></span>
+        <span id="chip-timer" class="chip mono">00:00</span>
+        <button id="btn-settings" class="icon" title="">&#x2699;&#xFE0E;</button>
+      </div>
+    </div>
+
+    <div id="stage">
+      <button id="start-hint" type="button">
+        <span class="big-mic"><span class="dot"></span></span>
+        <span class="t1" data-t="hintStart"></span>
+        <span class="t2" data-t="hintStartSub"></span>
+      </button>
+      <div id="reading-line"><span></span></div>
+      <div id="scroller"><div id="content"></div></div>
+    </div>
+
+    <div id="toasts"></div>
+
+    <div id="hud-bottom" class="hud">
+      <div id="next-slide" class="muted small" hidden></div>
+      <div id="transcript"><span class="fin"></span><span class="int"></span></div>
+      <div id="progress"><div class="fill"></div></div>
+    </div>
+
+    <aside id="settings" class="panel" hidden>
+      <h3 data-t="settings"></h3>
+      <label><span data-t="engine"></span>
+        <select id="set-engine">
+          <option value="auto"></option><option value="webspeech"></option><option value="native"></option><option value="sim"></option>
+        </select>
+      </label>
+      <div id="native-note" class="muted small"></div>
+      <label><span data-t="recLang"></span>
+        <select id="set-reclang">
+          <option value="auto"></option><option value="zh-CN">中文（普通话）zh-CN</option><option value="zh-TW">中文（台湾）zh-TW</option><option value="en-US">English (US)</option><option value="en-GB">English (UK)</option>
+        </select>
+      </label>
+      <label><span data-t="fontSize"></span><input id="set-font" type="range" min="22" max="110" step="1"></label>
+      <label><span data-t="lineHeight"></span><input id="set-lh" type="range" min="1.2" max="2.2" step="0.05"></label>
+      <label><span data-t="readingLine"></span><input id="set-rl" type="range" min="0.15" max="0.65" step="0.01"></label>
+      <label><span data-t="lookahead"></span><input id="set-look" type="range" min="0" max="6" step="0.2"></label>
+      <label><span data-t="theme"></span>
+        <select id="set-theme"><option value="dark"></option><option value="light"></option><option value="amber"></option></select>
+      </label>
+      <label class="check"><input id="set-mirror" type="checkbox"><span data-t="mirror"></span></label>
+      <label class="check"><input id="set-flip" type="checkbox"><span data-t="flip"></span></label>
+      <label><span data-t="mathDisplay"></span>
+        <select id="set-math"><option value="formula"></option><option value="both"></option><option value="words"></option></select>
+      </label>
+      <label class="check"><input id="set-words" type="checkbox"><span data-t="wordProgress"></span></label>
+      <label class="check"><input id="set-transcript" type="checkbox"><span data-t="transcript"></span></label>
+      <label class="check"><input id="set-semantic" type="checkbox"><span data-t="semantic"></span></label>
+      <h4 data-t="slides"></h4>
+      <label>
+        <select id="set-slides"><option value="none"></option><option value="keynote"></option><option value="powerpoint"></option><option value="external"></option></select>
+      </label>
+      <label class="check"><input id="set-slidefollow" type="checkbox"><span data-t="slideFollow"></span></label>
+      <label class="check"><input id="set-autobuilds" type="checkbox"><span data-t="autoBuilds"></span></label>
+      <label class="check"><input id="set-autoadvance" type="checkbox"><span data-t="autoAdvance"></span></label>
+      <div id="build-note" class="muted small"></div>
+      <button id="btn-align" class="ghost block" data-t="alignSlides"></button>
+      <button id="btn-map" class="ghost block">手动校对页码 / Review slide mapping</button>
+      <div id="map-editor" hidden>
+        <p class="muted small">每行：幻灯片页码 = 段落编号（例如 1=1、2=3）；纯图片页可省略。<br>One line per slide: slide = paragraph. Picture-only slides may be omitted.</p>
+        <textarea id="map-input" rows="5" aria-label="Slide to paragraph mapping" placeholder="1=1&#10;2=3"></textarea>
+        <div id="map-paragraphs" class="muted small"></div>
+        <button id="btn-map-apply" class="ghost block">应用已校对的页码 / Apply reviewed mapping</button>
+      </div>
+      <div id="slide-note" class="muted small"></div>
+      <h4 data-t="demoSection"></h4>
+      <p class="muted small" data-t="demoExplain"></p>
+      <button id="btn-demo" class="ghost block" data-t="demoOpen"></button>
+      <p class="muted small" data-t="shortcuts"></p>
+      <button id="btn-reset" class="ghost block" data-t="reset"></button>
+    </aside>
+
+    <aside id="simpanel" class="panel" hidden>
+      <h3 data-t="demo"></h3>
+      <p class="muted small" data-t="demoExplain"></p>
+      <label><span data-t="simSpeed"></span><input id="sim-speed" type="range" min="0.5" max="3" step="0.1" value="1"></label>
+      <div class="row wrap">
+        <button id="sim-read" class="primary small">▶ read all</button>
+        <button id="sim-story" class="ghost small">▶ ad-lib + skip + pause</button>
+        <button id="sim-stop" class="ghost small">■</button>
+      </div>
+      <input id="sim-say" type="text" autocomplete="off">
+    </aside>
+  </section>
+</div>
+<script type="module" src="app.js"></script>
+</body>
+</html>

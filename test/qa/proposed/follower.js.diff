@@ -1,0 +1,43 @@
+--- a/public/lib/follower.js
++++ b/public/lib/follower.js
+@@ -133,11 +133,19 @@
+   // so a judgment never sees only a fragment (paraphrases re-match a few
+   // words and reset the run).
+   offScriptSpeech() {
++    return this.offScriptParts().text;
++  }
++
++  // The same window split into `lead` (the padding: script words read just
++  // before leaving the script) and `speech` (the words said since).
++  offScriptParts() {
+     const toks = [...this.recent.map((t) => t.n), ...speechTokens(this.interimText, this.lang).map((t) => t.n)];
+     const sep = this.lang === 'zh' ? '' : ' ';
+     const minWin = this.lang === 'zh' ? 14 : 9;
+     const n = Math.min(toks.length, 48, Math.max(this.run, minWin));
+-    return toks.slice(toks.length - n).join(sep);
++    const win = toks.slice(toks.length - n);
++    const k = Math.min(Math.max(this.run, 0), n);
++    return { text: win.join(sep), lead: win.slice(0, n - k).join(sep), speech: win.slice(n - k).join(sep) };
+   }
+ 
+   _applyResult(res, now, confirming = false) {
+@@ -308,8 +316,18 @@
+     // rather than stepping back to the sentence start.
+     const backInSentence = whereIdx >= 0 && whereIdx < curPh && doc.phrases[whereIdx] &&
+       doc.phrases[whereIdx].sent === doc.phrases[curPh].sent && (label === 'paraphrase' || label === 'reading_current');
++    // Guards against the wrong moves seen in QA: the label and the line must
++    // agree on the direction; the phrase just before the current one is what
++    // the speaker had just read (its words open the off-script window), so
++    // returning there is left to the lexical tracker; and a jump needs a
++    // reasonably certain relation (a slip that contains words from elsewhere
++    // in the script starts out at p ~0.3-0.6).
++    const relP = rel.probabilities ? rel.probabilities[label] ?? 0 : 0;
++    const wrongWay = whereIdx >= 0 && ((label === 'went_back' && whereIdx > curPh) || (label === 'jumped_ahead' && whereIdx < curPh));
++    const justRead = whereIdx >= 0 && whereIdx === curPh - 1;
+     if ((label === 'jumped_ahead' || label === 'went_back' || label === 'paraphrase' || label === 'reading_current') &&
+-        whereIdx >= 0 && whereP >= 0.4 && (j.onScript ?? 1) >= 0.5 && whereIdx !== curPh && !backInSentence) {
++        whereIdx >= 0 && whereP >= 0.4 && (j.onScript ?? 1) >= 0.5 && whereIdx !== curPh && !backInSentence &&
++        !wrongWay && !justRead && relP >= 0.6) {
+       const ph = doc.phrases[whereIdx];
+       if (ph) {
+         // Re-anchor at the phrase; let the lexical tracker refine inside it.

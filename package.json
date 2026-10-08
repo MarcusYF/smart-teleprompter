@@ -1,0 +1,20 @@
+{
+  "name": "claude-jev-teleprompter",
+  "version": "1.3.0",
+  "buildNumber": 14,
+  "private": true,
+  "description": "Local voice-following teleprompter (English + Chinese) with Jev semantic judgments and slide-show sync",
+  "type": "module",
+  "scripts": {
+    "start": "node server/main.mjs",
+    "test": "node --test test/*.test.mjs",
+    "test:qa": "node --test test/qa/*.test.mjs",
+    "test:e2e": "node test/run-native-e2e.mjs",
+    "test:all": "npm test && npm run test:qa",
+    "test:http": "node --test test/http-smoke.mjs",
+    "build:native": "bash native/build.sh",
+    "build:app": "bash tools/make-app.sh --archive output/SmartTeleprompter-1.3.0-macOS-arm64.zip",
+    "test:bundle": "node tools/verify-bundle.mjs"
+  },
+  "engines": { "node": ">=24" }
+}

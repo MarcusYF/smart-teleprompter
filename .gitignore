@@ -1,0 +1,15 @@
+.DS_Store
+data/
+native/build/
+node_modules/
+test/qa/results/
+test/qa/proto-tracker/
+Teleprompter.app/
+output/
+.project-memory.lock
+project-memory/snapshots/
+.env
+.env.*
+!.env.example
+*.dmg
+*.zip

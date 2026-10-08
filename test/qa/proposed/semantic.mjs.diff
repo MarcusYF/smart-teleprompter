@@ -1,0 +1,121 @@
+--- a/server/semantic.mjs
++++ b/server/semantic.mjs
+@@ -9,49 +9,77 @@
+ import { ask, mapLimit } from './jev.mjs';
+ import { keyphraseCandidates } from '../public/lib/outline.js';
+ 
+-export const PROMPT_VERSION = 'v1';
++export const PROMPT_VERSION = 'v2'; // v2: importance rubric names assignments/deadlines (outline cache key)
+ 
+ // ------------------------------------------------------------------ track
+ 
++// The client sends the words said since the speaker left the script
++// (`speech`), the script words read just before them (`leadIn`, padding that
++// Follower.offScriptSpeech adds so a judgment never sees a fragment), and the
++// current phrase id (`curId`). Script lines are laid out as earlier / current
++// / later, so Jev does not have to infer order from ids, and the padding is
++// labeled as context so it is not mistaken for going back.
++
++const ASR_NOTE = 'The speech comes from automatic speech recognition: no punctuation, and it may contain wrong words, homophones, split or merged words, and fillers.';
++const LEAD_NOTE = '`words_just_read_from_script` (if present) are the last script words the speaker read before `new_speech`; they are context, not part of the new speech.';
++
+ const RELATION = {
+   type: 'choice',
+   instructions: {
+-    question: 'A speaker is giving a talk from a prepared script. `off_script_speech` is what they said since they last followed the script word for word. `current_script_phrase` is where the teleprompter thinks they are. What is the speaker doing?',
+-    note: 'The speech comes from automatic speech recognition, so it has no punctuation and may contain wrong words or homophones.',
++    question: 'A speaker is giving a talk from a prepared script. `new_speech` is what they said since they last followed the script word for word. `current_script_line` is where the teleprompter thinks they are. What is the speaker doing?',
++    note: ASR_NOTE,
++    context: LEAD_NOTE,
+   },
+   criteria: {
+-    reading_current: 'Reading `current_script_phrase` or the text right after it almost word for word; the differences are only recognition errors.',
+-    paraphrase: 'Expressing the same meaning as the current or the next script sentence, but in noticeably different words.',
++    reading_current: 'Reading `current_script_line` or the text right after it almost word for word; the differences are only recognition errors.',
++    paraphrase: 'Expressing the same meaning as `current_sentence` or the next script sentence, but in noticeably different words.',
+     adlib_related: 'Adding their own comment, example, story, joke, or explanation that is related to the current topic but is not in the script.',
+     false_start: 'A slip of the tongue, stumble, or self-correction, such as breaking off a word and restarting, or saying sorry, let me say that again.',
+-    jumped_ahead: 'Saying content that appears later in `script_lines`, after the current phrase, so part of the script was skipped.',
+-    went_back: 'Repeating or returning to content from earlier in `script_lines`, before the current phrase.',
++    jumped_ahead: 'Saying content from `later_script_lines`, so part of the script was skipped.',
++    went_back: 'Repeating or returning to content from `earlier_script_lines`.',
+     unrelated: 'Talking about something unrelated to the script, such as logistics, technical problems, or chatting with the audience.',
+   },
+ };
++
++function scriptLayout(p, lines) {
++  let cur = /^P\d+$/.test(p.curId || '') ? parseInt(p.curId.slice(1), 10) : -1;
++  if (cur < 0) {
++    // older client without curId: locate the current phrase by its text
++    const m = lines.find((c) => c.text === p.current);
++    cur = m ? parseInt(m.id.slice(1), 10) : -1;
++  }
++  const idx = (c) => parseInt(c.id.slice(1), 10);
++  const fmt = (xs) => xs.map((c) => `${c.id}| ${c.text}`).join('\n');
++  return {
++    current: fmt(lines.filter((c) => idx(c) === cur)) || p.current || '',
++    earlier: fmt(lines.filter((c) => idx(c) < cur)),
++    later: fmt(lines.filter((c) => idx(c) > cur)),
++  };
++}
+ 
+ export async function trackJudgment(p) {
+   const lines = (p.candidates || []).slice(0, 60);
++  const layout = scriptLayout(p, lines);
+   const state = {
+-    script_before_current: p.before || '',
+-    current_script_phrase: p.current || '',
++    current_script_line: layout.current,
+     current_sentence: p.sentence || '',
+-    script_after_current: p.after || '',
+-    off_script_speech: p.offScript || p.recent || '',
+-    script_lines: lines.map((c) => `${c.id}| ${c.text}`).join('\n'),
+   };
++  if (p.leadIn) state.words_just_read_from_script = p.leadIn;
++  state.new_speech = p.speech ?? p.offScript ?? p.recent ?? '';
++  state.earlier_script_lines = layout.earlier;
++  state.later_script_lines = layout.later;
+   const whereCriteria = Object.fromEntries(lines.map((c) => [c.id, null]));
+   whereCriteria.none = 'The speech does not correspond to any line of the script.';
+   const questions = {
+     relation: RELATION,
+     where: {
+       type: 'choice',
+-      instructions: 'Which line of `script_lines` is the speaker saying (reading or paraphrasing) at the end of `off_script_speech`? Choose none if the speech does not correspond to any line.',
++      instructions: 'Which script line (in `earlier_script_lines`, `current_script_line`, or `later_script_lines`) is the speaker saying (reading or paraphrasing) at the end of `new_speech`? Choose none if the speech does not correspond to any line.',
+       criteria: whereCriteria,
+     },
+     on_script: {
+       type: 'noul',
+-      instructions: 'Is the end of `off_script_speech` a reading or a paraphrase of some line of `script_lines`?',
++      instructions: 'Is the end of `new_speech` a reading or a paraphrase of some script line?',
+       criteria: {
+         true: 'The speaker is saying content that is in the script, possibly in other words.',
+         false: 'The speaker is saying something that is not in the script.',
+@@ -59,7 +87,7 @@
+     },
+     covered: {
+       type: 'noul',
+-      instructions: 'In `off_script_speech`, has the speaker already expressed the main point of `current_sentence`, in any wording?',
++      instructions: 'In `new_speech`, has the speaker already expressed the main point of `current_sentence`, in any wording?',
+       criteria: {
+         true: 'The main point of the current sentence has been said, even if with different words.',
+         false: 'The main point of the current sentence has not been said yet.',
+@@ -102,7 +130,7 @@
+   list.forEach((_, i) => {
+     questions[`important_${i}`] = {
+       type: 'noul',
+-      instructions: `The speaker skipped these script sentences while giving a talk. Does sentence K${i + 1} of \`skipped_sentences\` state an important point that the audience would miss, such as a key fact, number, definition, step, or argument?`,
++      instructions: `The speaker skipped these script sentences while giving a talk. Does sentence K${i + 1} of \`skipped_sentences\` state an important point that the audience would miss, such as a key fact, number, definition, step, argument, or an instruction, assignment, or deadline for the audience?`,
+       criteria: {
+         true: 'It carries content the talk depends on; the speaker should go back to it.',
+         false: 'It is a transition, signpost, repetition, aside, or minor detail that can be dropped.',
+@@ -135,7 +163,7 @@
+ const IMPORTANCE_LEVELS = [
+   'Filler: a greeting, thanks, transition, or signpost with no content of its own.',
+   'Supporting detail: an example, elaboration, or restatement that helps but could be dropped.',
+-  'Important point: a claim, fact, number, or step the audience should remember.',
++  'Important point: a claim, fact, number, or step the audience should remember, or an instruction, assignment, or deadline the audience must act on.',
+   'Central point: the main message of its paragraph.',
+ ];
+ 
