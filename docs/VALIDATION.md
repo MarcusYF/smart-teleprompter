@@ -38,3 +38,17 @@ node tools/verify-bundle.mjs /tmp/tp-verify/智能提词器.app
 
 The app is not Apple-notarized. macOS Gatekeeper behavior on a downloaded copy is
 not covered by local ad-hoc signature checks. See README for first-launch guidance.
+
+## Public release and CI
+
+The tested archive is published at [v1.3.0](https://github.com/MarcusYF/smart-teleprompter/releases/tag/v1.3.0).
+ZIP SHA-256: `77649df51bde49ea03d8597e5baa407226de9439619458e90df5ded2fbe4ddec`.
+The GitHub asset digest matches the local tested archive.
+
+Linux functional CI passed for source commit `eef4776a32b6c5f3f6f6eac02e3d985cf72365f1`.
+The separate Apple Silicon performance job was queued at publication; it is not
+reported as passed. See [the workflow run](https://github.com/MarcusYF/smart-teleprompter/actions/runs/37803334523).
+Two earlier Linux runs exceeded strict tracker timing budgets, including after
+serial execution. Functional checks passed. Timing tests now run on the target
+Apple Silicon platform with their original thresholds; the local Mac stress
+suite passed. This runner change is not evidence of a remote performance pass.
