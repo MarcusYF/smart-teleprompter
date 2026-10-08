@@ -3,7 +3,7 @@ on: [push, pull_request]
 permissions:
   contents: read
 jobs:
-  test:
+  functional:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -11,6 +11,18 @@ jobs:
         with:
           node-version: 24
       - run: npm test
-      # Timing budgets need an isolated CPU; concurrent QA files skew p95/max.
-      - run: node --test --test-concurrency=1 test/qa/*.test.mjs
+      - name: Tracker functional scenarios
+        run: node --test test/qa/tracker-{mixed,offscript,recognizer,skips,speed}.test.mjs
       - run: npm run test:http
+  performance:
+    # Timing budgets target the Apple Silicon platform shipped in the release.
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Check runner architecture
+        run: test "$(uname -m)" = arm64
+      - name: Strict tracker timing budgets
+        run: node --test test/qa/tracker-perf.test.mjs
