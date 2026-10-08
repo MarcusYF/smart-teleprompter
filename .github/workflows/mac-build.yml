@@ -11,7 +11,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - run: npm run test:all && npm run test:http
+      - run: npm test && node --test --test-concurrency=1 test/qa/*.test.mjs && npm run test:http
       - run: npm run build:app
       - name: Verify relocated bundle
         run: |

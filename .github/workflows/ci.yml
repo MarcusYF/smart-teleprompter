@@ -10,5 +10,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - run: npm run test:all
+      - run: npm test
+      # Timing budgets need an isolated CPU; concurrent QA files skew p95/max.
+      - run: node --test --test-concurrency=1 test/qa/*.test.mjs
       - run: npm run test:http
