@@ -1,7 +1,7 @@
 {
   "name": "claude-jev-teleprompter",
-  "version": "1.4.2",
-  "buildNumber": 18,
+  "version": "1.4.3",
+  "buildNumber": 19,
   "private": true,
   "description": "Local voice-following teleprompter (English + Chinese) with Jev semantic judgments and slide-show sync",
   "type": "module",
@@ -13,7 +13,7 @@
     "test:all": "npm test && npm run test:qa",
     "test:http": "node --test test/http-smoke.mjs",
     "build:native": "bash native/build.sh",
-    "build:app": "bash tools/make-app.sh --archive output/SmartTeleprompter-1.4.2-macOS-arm64.zip",
+    "build:app": "bash tools/make-app.sh --archive output/SmartTeleprompter-1.4.3-macOS-arm64.zip",
     "test:bundle": "node tools/verify-bundle.mjs"
   },
   "engines": { "node": ">=24" }

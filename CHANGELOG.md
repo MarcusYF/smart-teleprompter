@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.4.3 (19) — 2026-10-19
+
+- A script stays linked to its Keynote deck after Keynote restarts. Decks were
+  identified by Keynote's document id, which changes every time a document is
+  opened, so after a restart the prompter treated the deck as a different
+  document, stopped following slides and paused automatic control. Decks are
+  now identified by their file; an unsaved deck uses its session id until it is
+  saved, and saving it is not a change of deck. Scripts saved by earlier
+  versions are matched by deck name and then tied to the file.
+- The click guard tolerates the moment when Keynote reports no current slide
+  (at the start of a recording).
+
 ## 1.4.2 (18) — 2026-10-19
 
 - A click on the script, or an arrow-key move in the prompter, sets the

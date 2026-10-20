@@ -11,8 +11,19 @@ import { readKeynoteBuilds } from './keynote-file.mjs';
 import { placeClicks } from '../public/lib/autoclick.js';
 import { markedClicks } from '../public/lib/script.js';
 
+// A deck's identity: its file. Keynote's document id lasts one Keynote
+// session only, so a script tied to it lost its deck when Keynote restarted.
+// An unsaved document falls back to that id ("session:").
+export const DECK_KEY_JS = String.raw`
+function deckKey(d) {
+  try { const f = d.file(); if (f) return 'file:' + f.toString(); } catch (e) {}
+  try { return 'session:' + String(d.id()); } catch (e) { return null; }
+}
+`;
+
 const KEYNOTE_WATCH = String.raw`
 ObjC.import('Foundation');
+${DECK_KEY_JS}
 function out(o) {
   const s = $(JSON.stringify(o) + "\n");
   $.NSFileHandle.fileHandleWithStandardOutput.writeData(s.dataUsingEncoding($.NSUTF8StringEncoding));
@@ -36,7 +47,8 @@ while (true) {
       if (kn.documents.length > 0) {
         const doc = kn.documents[0];
         st.doc = doc.name();
-        try { st.docId = String(doc.id()); } catch (e) {}
+        st.docId = deckKey(doc);
+        try { st.sessionId = String(doc.id()); } catch (e) {}
         st.total = doc.slides.length;
         try { st.slide = doc.currentSlide().slideNumber(); } catch (e) {}
       }
@@ -49,6 +61,7 @@ while (true) {
 `;
 
 const KEYNOTE_IMPORT = String.raw`
+${DECK_KEY_JS}
 (() => {
   let kn = null;
   for (const id of ['com.apple.Keynote', 'com.apple.iWork.Keynote']) {
@@ -71,8 +84,7 @@ const KEYNOTE_IMPORT = String.raw`
     try { skipped = s.skipped(); } catch (e) {}
     return { n: s.slideNumber(), title, body, notes, skipped };
   });
-  let docId = null;
-  try { docId = String(doc.id()); } catch (e) {}
+  const docId = deckKey(doc);
   // the saved file holds the builds (AppleScript cannot see them)
   let file = null;
   try { const f = doc.file(); if (f) file = f.toString(); } catch (e) {}
@@ -84,13 +96,13 @@ const KEYNOTE_IMPORT = String.raw`
 
 // The front document's file, for its build counts.
 const KEYNOTE_FILE = String.raw`
+${DECK_KEY_JS}
 (() => {
   for (const id of ['com.apple.Keynote', 'com.apple.iWork.Keynote']) {
     const a = Application(id);
     if (!a.running() || a.documents.length === 0) continue;
     const doc = a.documents[0];
-    let docId = null;
-    try { docId = String(doc.id()); } catch (e) {}
+    const docId = deckKey(doc);
     let file = null;
     try { const f = doc.file(); if (f) file = f.toString(); } catch (e) {}
     let modified = false;
@@ -145,7 +157,8 @@ export class Slides extends EventEmitter {
     const next = { ...this.state, ...patch, source: this.source, at: Date.now() };
     const changed = next.slide !== this.state.slide || next.playing !== this.state.playing ||
       next.total !== this.state.total || next.error !== this.state.error || next.running !== this.state.running ||
-      next.doc !== this.state.doc || next.docId !== this.state.docId || next.title !== this.state.title || next.source !== this.state.source;
+      next.doc !== this.state.doc || next.docId !== this.state.docId || next.sessionId !== this.state.sessionId ||
+      next.title !== this.state.title || next.source !== this.state.source;
     this.state = next;
     if (changed) this.emit('state', this.state);
   }
@@ -194,7 +207,7 @@ export class Slides extends EventEmitter {
         buf = buf.slice(i + 1);
         try {
           const st = JSON.parse(line);
-          this._update({ slide: st.slide ?? null, total: st.total ?? null, playing: !!st.playing, running: st.running, doc: st.doc, docId: st.docId, error: st.error || null });
+          this._update({ slide: st.slide ?? null, total: st.total ?? null, playing: !!st.playing, running: st.running, doc: st.doc, docId: st.docId, sessionId: st.sessionId ?? null, error: st.error || null });
         } catch {
           // ignore partial lines
         }
@@ -285,8 +298,9 @@ export class Slides extends EventEmitter {
     if (this.source === 'keynote') {
       const cmd = action === 'next' ? 'showNext' : 'showPrevious';
       // Recheck inside the same Apple Event task that sends the click.
-      const guard = expected ? `const d = a.documents[0]; if (!d || d.name() !== ${JSON.stringify(expected.doc)} || ${expected.docId ? `String(d.id()) !== ${JSON.stringify(expected.docId)} || ` : ''} d.currentSlide().slideNumber() !== ${JSON.stringify(expected.slide)}) return 'stale';` : '';
-      const out = await osa(['-l', 'JavaScript', '-e', `(() => { for (const id of ['com.apple.Keynote', 'com.apple.iWork.Keynote']) { const a = Application(id); if (a.running() && a.playing()) { ${guard} a.${cmd}(); return 'ok'; } } return 'not playing'; })()`], null, 4000);
+      // (the current slide is briefly null while Keynote starts recording)
+      const guard = expected ? `const d = a.documents[0]; const c = d ? d.currentSlide() : null; if (!d || !c || d.name() !== ${JSON.stringify(expected.doc)} || ${expected.docId ? `deckKey(d) !== ${JSON.stringify(expected.docId)} || ` : ''} c.slideNumber() !== ${JSON.stringify(expected.slide)}) return 'stale';` : '';
+      const out = await osa(['-l', 'JavaScript', '-e', `${DECK_KEY_JS}\n(() => { for (const id of ['com.apple.Keynote', 'com.apple.iWork.Keynote']) { const a = Application(id); if (a.running() && a.playing()) { ${guard} a.${cmd}(); return 'ok'; } } return 'not playing'; })()`], null, 4000);
       if (out !== 'ok') throw Object.assign(new Error(out === 'stale' ? 'Presentation changed before the click' : 'Keynote is not playing'), { status: 409 });
       return true;
     }

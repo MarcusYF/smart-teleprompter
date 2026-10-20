@@ -11,6 +11,7 @@ const { heuristicAnalysis, mergeAnalysis, outlineItems } = await mod('public/lib
 const { WebSpeechEngine, NativeEngine, SimEngine, MicMeter, Vad } = await mod('public/lib/engines.js');
 const { t, setUiLang, uiLang } = await mod('public/lib/i18n.js');
 const { manualAlignment } = await mod('public/lib/alignment.js');
+const { deckName, deckKey, sameDeck, sameDocument } = await mod('public/lib/deck.js');
 class Elem {
   constructor() { this.dataset = {}; this.style = { setProperty() {} }; this.children = []; this.options = Array.from({length:4}, () => ({value:'auto'})); this.value = ''; this.hidden = true; this.classList = { toggle() {}, add() {}, remove() {} }; }
   addEventListener() {} focus() {} remove() {} blur() {} appendChild(e) { this.children.push(e); return e; } append(...es) { this.children.push(...es); }
@@ -31,7 +32,7 @@ globalThis.fetch = stubFetch;
 const context = vm.createContext({
   parseScript, distinctiveTerms, textOfPhrases, Follower, Renderer: StubRenderer,
   BuildController, slideIndex, SemanticClient, heuristicAnalysis, mergeAnalysis,
-  manualAlignment,
+  manualAlignment, deckName, deckKey, sameDeck, sameDocument,
   WebSpeechEngine, NativeEngine, SimEngine, MicMeter, Vad, t, setUiLang, uiLang,
   window: { addEventListener() {}, innerHeight: 900 }, document: { querySelector: el, querySelectorAll: () => [], addEventListener: (name, cb) => documentEvents.set(name, cb), createElement: () => new Elem(), documentElement: new Elem() },
   localStorage: { getItem: k => storage.get(k) ?? null, setItem: (k,v) => storage.set(k,v) },

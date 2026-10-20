@@ -1,8 +1,8 @@
-# Smart Teleprompter · 1.4.2
+# Smart Teleprompter · 1.4.3
 
 A voice-following teleprompter for English and Chinese, with optional **Jev** semantic assistance and Keynote / PowerPoint synchronization. Read, pause, paraphrase, or ad-lib: the app follows your script phrase by phrase and offers several levels of detail, from full text to an outline.
 
-**[Download the Mac app](https://github.com/MarcusYF/smart-teleprompter/releases)** — download `SmartTeleprompter-1.4.2-macOS-arm64.zip`, extract it, and drag **智能提词器.app** into Applications. The app bundles its frontend, local server, Node.js 24.21.0, and native speech helper. Running it does not require the source checkout, Homebrew, or a separate Node installation.
+**[Download the Mac app](https://github.com/MarcusYF/smart-teleprompter/releases)** — download `SmartTeleprompter-1.4.3-macOS-arm64.zip`, extract it, and drag **智能提词器.app** into Applications. The app bundles its frontend, local server, Node.js 24.21.0, and native speech helper. Running it does not require the source checkout, Homebrew, or a separate Node installation.
 
 **Supported native release: Apple Silicon Macs running macOS 26 or later.** There is no Intel native release. The browser frontend can run on Windows or Linux, without the Mac speech helper or native slideshow automation.
 
@@ -13,7 +13,7 @@ This is a **preview release**. It has an ad-hoc signature and is **not signed wi
 - **Animations follow your speech in imported Keynote decks.** **Import Keynote notes** now reads each slide's builds from the saved `.key` file. Where the notes have no `[click]` markers, it places one per build before the sentence that first mentions what the build reveals, so each animation plays as you reach it. Before, the builds waited for the end of the slide and then flashed by. Slides whose existing markers do not match their builds are flagged in the script.
 - **Click to say "I am here".** If you skip sentences, click the word you are on. The prompter jumps there, stops counting the skipped sentences as missed, and the slideshow catches up at once: every build up to that word plays in quick succession, and on a later slide the slides in between are turned.
 - **More reliable page turns.** A pause within the last few words of a slide also turns the page, for when the recognizer misses the final words. With the deck's build counts known, the prompter ignores surplus markers that would turn a slide early, tells a manual click on a build from a page turn, and clicks through unmarked builds before turning.
-- **Fixes.** The Mac app no longer quits when a confirmation dialog closes (1.4.1). On-device recognition recovers when a Bluetooth headset microphone switches modes (1.3.1).
+- **Fixes.** A script now stays linked to its Keynote deck after Keynote restarts (1.4.3). The Mac app no longer quits when a confirmation dialog closes (1.4.1). On-device recognition recovers when a Bluetooth headset microphone switches modes (1.3.1).
 
 See [CHANGELOG.md](CHANGELOG.md) for every release.
 
@@ -42,14 +42,14 @@ See [CHANGELOG.md](CHANGELOG.md) for every release.
 
 **Mac app**
 
-- A standalone Apple Silicon app with its own server, Node.js runtime and speech helper. Scripts are stored per user, and an optional dialog stores the Jev key in the Keychain. The window title shows the version and build: **v1.4.2 (18)**.
+- A standalone Apple Silicon app with its own server, Node.js runtime and speech helper. Scripts are stored per user, and an optional dialog stores the Jev key in the Keychain. The window title shows the version and build: **v1.4.3 (19)**.
 - Reliability safeguards: queued clicks are cancelled when you pause, failed clicks pause automation, and only one window can control a slideshow at a time. Changing the presentation document pauses automatic control, and rehearsal mode never operates real slides.
 
-Originally developed with Claude and Jev; reliability revisions and standalone packaging were completed with Codex; 1.3.1–1.4.2 were developed with Claude. The project uses the [MIT License](LICENSE). Bundled Node licensing is included in the app; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Originally developed with Claude and Jev; reliability revisions and standalone packaging were completed with Codex; 1.3.1–1.4.3 were developed with Claude. The project uses the [MIT License](LICENSE). Bundled Node licensing is included in the app; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## First launch
 
-1. Quit any older running copy, install the extracted app, and open it. Confirm **v1.4.2 (18)** in the window title.
+1. Quit any older running copy, install the extracted app, and open it. Confirm **v1.4.3 (19)** in the window title.
 2. Paste a script, or open a `.key` document in Keynote and choose **Import Keynote notes**. Import reads the open document's notes through AppleScript and its animation builds from the saved `.key` file (read only).
 3. Start prompting, then start listening. Grant microphone permission when macOS requests it. Download a supported Apple language model in Settings if necessary. The initial model download requires internet access; on-device recognition can then run offline.
 4. Optionally choose the application menu's **Configure Jev API key…**, enter your own TypeSafe key, save, quit, and reopen the app. Jev can be disabled in Settings. Without a key, local following and local outlines still work.
@@ -161,7 +161,7 @@ When the preceding phrase finishes, the prompter requests the next Keynote step.
 - The animation counter is **inferred from script markers and observed events**. Keynote does not expose its actual animation index. When the saved Keynote file has no unsaved changes, the prompter reads each slide's build count from it. It ignores markers beyond that count, because their click would turn the slide early, and it can tell whether a manual click showed a build or turned the slide.
 - Pause using the animation counter or the global shortcut. Resuming does not replay markers crossed during the pause. Settings separately control automatic animations and page turns.
 - Stopping listening, pausing, or losing the service clears unsent clicks. A click already sent cannot be withdrawn. Control failures pause automation; inspect the slideshow before using the recovery control.
-- Changing the presentation document pauses automatic control. Imported scripts retain their source-document association and can offer to import notes from the newly active Keynote document.
+- Changing the presentation document pauses automatic control. An imported script is tied to its deck's file, so it stays linked when Keynote restarts or the deck is reopened, and it can offer to import notes from a different active Keynote document. Saving a new deck does not count as a change. Scripts saved by earlier versions are matched by deck name once and then tied to the file.
 
 ### External slide-state input
 
@@ -221,7 +221,7 @@ The animation test uses the real recognizer and a **simulated** slideshow. The b
 
 See [docs/VALIDATION.md](docs/VALIDATION.md) for current evidence, [CHANGELOG.md](CHANGELOG.md) for changes, and [HANDOFF.md](HANDOFF.md) for development context. GitHub Actions runs functional tests on Linux and strict tracker timing tests on an Apple Silicon Mac runner. A separate manual Mac workflow builds and verifies an archive. These workflows do not call paid Jev endpoints.
 
-**Pending live acceptance:** real microphone use in noisy rooms, dual-display fullscreen presentations, physical clickers and mouse events, PowerPoint, online Jev quality and latency, and testing on another Mac. Animation state is inferred; build counts and automatic marker placement depend on Keynote's undocumented file format (checked with decks saved by Keynote 14.5 and 15.1). `.key` import has no file picker or incremental note synchronization. Keynote identifies an open document only for the current session: after Keynote restarts, the prompter may treat the deck as a different document and pause automatic control. Import the notes again in that case. Automated test success does not establish these live behaviors. Historical `test/qa/REPORT-*.md` files describe earlier versions; use the current validation document for release status.
+**Pending live acceptance:** real microphone use in noisy rooms, dual-display fullscreen presentations, physical clickers and mouse events, PowerPoint, online Jev quality and latency, and testing on another Mac. Animation state is inferred; build counts and automatic marker placement depend on Keynote's undocumented file format (checked with decks saved by Keynote 14.5 and 15.1). `.key` import has no file picker or incremental note synchronization. Automated test success does not establish these live behaviors. Historical `test/qa/REPORT-*.md` files describe earlier versions; use the current validation document for release status.
 
 ## Repository layout
 

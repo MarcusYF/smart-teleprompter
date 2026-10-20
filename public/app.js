@@ -7,6 +7,7 @@ import { WebSpeechEngine, NativeEngine, SimEngine, MicMeter, Vad } from './lib/e
 import { SemanticClient } from './lib/semantic-client.js';
 import { heuristicAnalysis, mergeAnalysis } from './lib/outline.js';
 import { BuildController, slideIndex } from './lib/builds.js';
+import { deckName, deckKey, sameDeck, sameDocument } from './lib/deck.js';
 import { t, setUiLang, uiLang } from './lib/i18n.js';
 import { manualAlignment } from './lib/alignment.js';
 
@@ -209,9 +210,6 @@ function draft() {
 }
 
 // Keynote names a document with or without ".key"
-const deckName = (n) => String(n || '').replace(/\.key$/i, '').trim();
-const deckKey = (st) => st?.docId || st?.doc || null;
-
 // Text and metadata are both part of a saved script.
 function isDirty() {
   return !!scriptEl.value.trim() && (scriptEl.value !== S.savedText || !!(S.savedMeta &&
@@ -1016,8 +1014,20 @@ function deckClicks(n) {
   return d && d.clicks && d.key === deckKey(S.slide) ? d.clicks.get(n) ?? null : null;
 }
 
+// A script tied to an older identity of the playing deck (a bare session id,
+// or a session id from before the deck was saved) takes the deck's file.
+function adoptDeck(st) {
+  if (!st?.docId || st.source !== 'keynote') return;
+  if (S.docDeckId && S.docDeckId !== st.docId && sameDeck(S.docDeckId, S.docDeck, st)) S.docDeckId = st.docId;
+  if (S.scriptDeckId && S.scriptDeckId !== st.docId && sameDeck(S.scriptDeckId, S.scriptDeck, st)) {
+    S.scriptDeckId = st.docId;
+    lsSet('tp.draft', draft());
+  }
+}
+
 function onSlideState(st, initial = false) {
-  const deckChanged = !!(deckKey(S.slide) && deckKey(st) && (deckKey(st) !== deckKey(S.slide) || st.source !== S.slide.source));
+  const deckChanged = !!(deckKey(S.slide) && deckKey(st) && (st.source !== S.slide.source || !sameDocument(S.slide, st)));
+  adoptDeck(st);
   const prev = S.slide ? S.slide.slide : null;
   const wasPlaying = !!(S.slide && S.slide.playing);
   S.slide = st;
@@ -1177,7 +1187,7 @@ function applyBuildFlags() {
 // playing: its markers would click the wrong slides.
 function deckMismatch() {
   const playing = S.slide && S.slide.source === 'keynote' && S.slide.doc ? deckName(S.slide.doc) : '';
-  if (S.docDeckId && S.slide?.docId && S.slide.source === 'keynote') return S.docDeckId !== S.slide.docId;
+  if (S.docDeckId && S.slide?.docId && S.slide.source === 'keynote') return !sameDeck(S.docDeckId, S.docDeck, S.slide);
   return !!(S.docDeck && playing && S.docDeck !== playing);
 }
 

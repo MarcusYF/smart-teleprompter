@@ -15,10 +15,10 @@ jobs:
       - run: npm run build:app
       - name: Verify relocated bundle
         run: |
-          ditto -x -k output/SmartTeleprompter-1.4.2-macOS-arm64.zip "$RUNNER_TEMP/teleprompter"
+          ditto -x -k output/SmartTeleprompter-1.4.3-macOS-arm64.zip "$RUNNER_TEMP/teleprompter"
           node tools/verify-bundle.mjs "$RUNNER_TEMP/teleprompter/智能提词器.app"
       - uses: actions/upload-artifact@v4
         with:
           name: SmartTeleprompter-macOS-arm64
-          path: output/SmartTeleprompter-1.4.2-macOS-arm64.zip
+          path: output/SmartTeleprompter-1.4.3-macOS-arm64.zip
           if-no-files-found: error

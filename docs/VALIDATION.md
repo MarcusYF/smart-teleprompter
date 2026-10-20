@@ -1,4 +1,26 @@
-# Validation — 1.4.2 (18)
+# Validation — 1.4.3 (19)
+
+As of 2026-10-19. 1.4.3 identifies Keynote decks by their file instead of
+Keynote's per-session document id (server watcher, import, build counts, the
+in-Keynote click guard) and matches scripts to decks in a new module
+(`public/lib/deck.js`).
+
+| Check | Source of evidence | Result |
+| --- | --- | --- |
+| Cause | live Keynote 14.5, a scratch copy of a deck opened, closed and reopened | the AppleScript document id changed (`9374D864…` → `E534C770…`); the file key was identical |
+| Watcher and build counts | development server against the open deck (read only) | state reports `docId: file:<path>` plus the session id; `/api/slides/builds` reports the same key |
+| Deck matching | unit tests (5 new) | same file across sessions matches; another file with the same name does not; saving a new deck is not a change; scripts with a bare session id from earlier versions match in the same session, or by name after a restart |
+| `npm test`, `npm run test:qa`, `npm run test:http` | unit / stress / localhost HTTP | 156 regression tests and 73/73 stress tests passed; HTTP passed; the existing same-name deck-switch test still pauses control |
+| ZIP extracted code-signature check, `tools/verify-bundle.mjs`, install | bundle and installed app | passed; Info.plist reports 1.4.3 (19); the installed app starts and its server answers |
+
+Not covered: a real Keynote restart in the middle of a linked session (the
+reopen test exercises the same id change).
+
+1.4.3 ZIP SHA-256: `6129d367bf06f25f487b21c1fb37480a1e4c11137f38b4caff3e37c34aab5221`.
+
+---
+
+## 1.4.2 (18)
 
 As of 2026-10-19. 1.4.2 adds manual positioning that overrides the automatic one:
 a click on the script or an arrow-key move (web app). The show catches up in the
