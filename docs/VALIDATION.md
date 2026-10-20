@@ -150,6 +150,25 @@ not covered by local ad-hoc signature checks. See README for first-launch guidan
 
 ## Public release and CI
 
+**1.4.2 (18)**, released 2026-10-19 as the preview
+[v1.4.2](https://github.com/MarcusYF/smart-teleprompter/releases/tag/v1.4.2)
+(source commit `cb8b682aef584710de4abb807d196f12159e692b`). The GitHub asset
+digests match the locally tested files: ZIP
+`3dd0fc102dab80ad3df69624c842a5881a5c7b143d6dab963743df59054af83a`,
+SHA256SUMS.txt `8477cdd87dfdd6c83b5f659ed9176a6285f4e7ee04060d235b2ac9b15e63db31`.
+1.3.1, 1.4.0 and 1.4.1 were not released separately; their changes are in 1.4.2.
+
+CI for `cb8b682`: Linux functional tests passed. The Apple Silicon performance
+job failed in [run 39349917737](https://github.com/MarcusYF/smart-teleprompter/actions/runs/39349917737).
+Two strict timing tests ("40-60 word utterances with rewrites", English and
+Chinese) exceeded their budgets. The same two tests failed on the 1.3.0
+documentation commit `f6c7944` (run 37803790107), and the tracker has not
+changed since. The failure is pre-existing on the shared runner and not caused
+by this release, but remote timing is not reported as passed. The local Apple
+Silicon stress suite passes 73/73.
+
+### 1.3.0 (14)
+
 The tested archive is published at [v1.3.0](https://github.com/MarcusYF/smart-teleprompter/releases/tag/v1.3.0).
 ZIP SHA-256: `77649df51bde49ea03d8597e5baa407226de9439619458e90df5ded2fbe4ddec`.
 The GitHub asset digest matches the local tested archive.
