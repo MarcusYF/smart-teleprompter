@@ -172,7 +172,19 @@ not covered by local ad-hoc signature checks. See README for first-launch guidan
 
 ## Public release and CI
 
-**1.4.2 (18)**, released 2026-10-19 as the preview
+**1.4.3 (19)**, released 2026-10-19 as the preview
+[v1.4.3](https://github.com/MarcusYF/smart-teleprompter/releases/tag/v1.4.3)
+(source commit `b83accedcaf6b601c0af1498168087ad31dfebd0`). The GitHub asset
+digests match the locally tested files: ZIP
+`6129d367bf06f25f487b21c1fb37480a1e4c11137f38b4caff3e37c34aab5221`,
+SHA256SUMS.txt `c936c563cb363139869e35123559a2c93e1918883311a07a5b89c47437f9ce1f`.
+CI for `b83acce`: Linux functional tests passed. The Apple Silicon performance
+job failed the same two pre-existing timing tests described below
+([run 39361906916](https://github.com/MarcusYF/smart-teleprompter/actions/runs/39361906916)).
+
+### 1.4.2 (18)
+
+Released 2026-10-19 as
 [v1.4.2](https://github.com/MarcusYF/smart-teleprompter/releases/tag/v1.4.2)
 (source commit `cb8b682aef584710de4abb807d196f12159e692b`). The GitHub asset
 digests match the locally tested files: ZIP

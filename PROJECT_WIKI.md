@@ -35,3 +35,10 @@ Source: User report and requests, 2026-10-18/19 local: animations and page turns
 Source: User request, 2026-10-19: push the latest version to GitHub, update the version and describe the features in the README
 
 2026-10-19: Released 1.4.2 (18) as the GitHub preview v1.4.2. Public main gets a commit whose tree equals the development branch HEAD, on top of the public history. The legacy history stays local. The Apple Silicon CI timing tests for long rewritten utterances fail on the shared runner, as they did at 1.3.0; functional CI passes. Evidence: docs/VALIDATION.md, Public release and CI.
+
+
+<!-- project-memory:2026-10-19T233000Z-deck-identity-release-1-4-3 -->
+## 2026-10-19T233000Z-deck-identity-release-1-4-3
+Source: User requests, 2026-10-19: identify decks by file path to fix the restart problem, then publish
+
+2026-10-19: Keynote's AppleScript document id is per open, not per file: closing and reopening a deck changes it. Since 1.4.3, decks are identified as `file:<path>` (or `session:<id>` before the first save), and older scripts migrate by name. Released as v1.4.3. Evidence: the dated record and docs/VALIDATION.md.
