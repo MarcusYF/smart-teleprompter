@@ -87,6 +87,7 @@ export class Follower {
     this.lastInterimCount = 0;
     this.offEpisode = false; // QA proto (F1a): off script until the display re-anchors
     this.firstAnchor = 0;    // QA proto (F9): where speech first anchored the display
+    this.skipFloor = 0;      // text before a manual "I am here" is never marked skipped
     this.moveLog = [];       // QA proto (F4): [{seq, from, to}] recent display moves
   }
 
@@ -334,7 +335,7 @@ export class Follower {
       }
       // phrases above the first anchor of the session are not "skipped"
       // (the speaker chose to start there)
-      if (p.tokEnd <= this.firstAnchor) continue;
+      if (p.tokEnd <= Math.max(this.firstAnchor, this.skipFloor)) continue;
       if (this._isSkipped(p)) this.skipped.add(ph);
       else if (this._coverage(p) >= 0.34) this.skipped.delete(ph); // read now, even if skipped before
     }
@@ -403,7 +404,7 @@ export class Follower {
     for (let ph = firstPh; ph <= lastPh; ph++) {
       const p = doc.phrases[ph];
       if (p.tokEnd > to || p.tokEnd - p.tokStart < 2) continue;
-      if (this.coveredSents.has(p.sent) || p.tokEnd <= this.firstAnchor) continue;
+      if (this.coveredSents.has(p.sent) || p.tokEnd <= Math.max(this.firstAnchor, this.skipFloor)) continue;
       if (this._isSkipped(p)) this.skipped.add(ph);
     }
   }
@@ -494,6 +495,20 @@ export class Follower {
     this.offEpisode = false;
     this.status = this.status === 'idle' ? 'idle' : 'tracking';
     this._emit('manual');
+  }
+
+  // The speaker set the position by hand ("I am here", a click on the text).
+  // Forward, the text passed over was left out on purpose: nothing before
+  // the new position counts as skipped or is reminded. Back, it is re-read.
+  overrideTo(tok, now = Date.now()) {
+    const pos = Math.max(0, Math.min(this.doc.tokens.length, tok));
+    if (pos > this.pos) {
+      for (const ph of [...this.skipped]) if ((this.doc.phrases[ph]?.tokEnd ?? 0) <= pos) this.skipped.delete(ph);
+      this.skipFloor = Math.max(this.skipFloor, pos);
+    } else {
+      this.skipFloor = Math.min(this.skipFloor, pos);
+    }
+    this.jumpTo(pos, now);
   }
 
   // A slide change: bring the slide's section into play.

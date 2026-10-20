@@ -1,6 +1,6 @@
 # Handoff — Smart Teleprompter
 
-As of 2026-10-08. Version 1.3.0 (14), standalone Apple Silicon / macOS 26+ public preview.
+As of 2026-10-19. Version 1.4.2 (18), standalone Apple Silicon / macOS 26+ preview; publication to GitHub in progress (see docs/VALIDATION.md).
 
 ## Read first
 README.md (English), package.json, docs/VALIDATION.md, CHANGELOG.md, PRIVACY.md, PROJECT_MAINTENANCE.md.
@@ -20,4 +20,6 @@ Real noisy-room mic, dual-display fullscreen Keynote, physical clickers, PowerPo
 ## Working environment
 Local branch codex/portable-app preserves legacy master history. Public GitHub history was created separately to avoid publishing legacy private artifacts. Keep scripts, logs, caches, credentials, build archives and machine-specific snapshots excluded. Node 24+; native build needs macOS 26 SDK. Commands: npm run test:all; npm run test:http; npm run build:app; node tools/verify-bundle.mjs /path/to/智能提词器.app.
 
-Latest record: project-memory/records/2026-10-08T154804Z-public-preview-english-readme.md. Immutable snapshots are local and Git-ignored.
+2026-10-18/19: 1.3.1 recovers the on-device recognizer from Bluetooth-headset microphone stalls. 1.4.0 adds build-aware Keynote import (server/keynote-file.mjs reads builds from the saved .key file; public/lib/autoclick.js places one [click] per build where the notes have none), deck build counts during a show (GET /api/slides/builds), and a page turn on a pause near a slide's end. 1.4.1 stops the Mac app quitting when a dialog closes (the prompter window is an NSPanel). 1.4.2 makes a click on the script set the position (Follower.overrideTo) and catches the show up (BuildController.seek). The installed app on the development Mac is 1.4.2 (18). Known issue: Keynote's AppleScript document id changes per session, so a script imported before a Keynote restart is treated as another deck until it is imported again.
+
+Latest record: project-memory/records/2026-10-19T041300Z-build-aware-keynote-import.md. Immutable snapshots are local and Git-ignored.

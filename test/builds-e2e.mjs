@@ -7,6 +7,9 @@
 // builds each slide has. Nothing is sent to a real slide app.
 //
 //   node test/builds-e2e.mjs --script notes.md --slides 3-6 --clicks 0,0,2,2,8,6 [--rate 1.5]
+//     [--drop-tail 2]   leave out each slide's last 2 words (missed or not said)
+//     [--end-pause 2.5] seconds of silence after each slide's text (default 0.8)
+//     [--known 0]       the controller does not know the build counts
 //
 // Reports, for every marker, when its click came relative to the words around
 // it, and whether each slide advanced only after all of its builds.
@@ -31,6 +34,9 @@ mkdirSync(work, { recursive: true });
 const doc = parseScript(readFileSync(arg('script'), 'utf8'));
 const [s0, s1] = arg('slides', '3-4').split('-').map(Number);
 const clicks = arg('clicks', '').split(',').map(Number); // builds per slide, slide 1 first
+const dropTail = +arg('drop-tail', '0');
+const endPause = +arg('end-pause', '0.8');
+const known = arg('known', '1') === '1' && arg('clicks', '') !== '';
 const lang = doc.lang;
 
 // ---------------------------------------------------------------- audio
@@ -69,7 +75,7 @@ const silence = (sec) => Buffer.alloc(Math.round(sec * 16000) * 2);
 pcm.push(silence(0.5));
 at += 0.5;
 for (const c of cuts) {
-  const text = tokText(from, c.tok);
+  const text = tokText(from, c.kind === 'end' ? Math.max(from, c.tok - dropTail) : c.tok);
   if (text) {
     const f = join(work, `piece-${timeline.length}.wav`);
     execFileSync('/usr/bin/say', ['-v', voice, '-r', sayRate, '-o', f, '--file-format=WAVE', '--data-format=LEI16@16000', text]);
@@ -79,8 +85,8 @@ for (const c of cuts) {
     at += data.length / 32000;
   }
   timeline.push({ ...c, t: at });
-  pcm.push(silence(c.kind === 'end' ? 0.8 : 0.35));
-  at += c.kind === 'end' ? 0.8 : 0.35;
+  pcm.push(silence(c.kind === 'end' ? endPause : 0.35));
+  at += c.kind === 'end' ? endPause : 0.35;
   from = c.tok;
 }
 pcm.push(silence(1.5));
@@ -126,6 +132,8 @@ ctl = new BuildController(doc, {
   send, range,
   nextRange: (n) => range(n + 1),
   markers: (n) => doc.builds.filter((b) => b.slide === n),
+  clicks: (n) => (known ? clicks[n - 1] ?? 0 : null),
+  log: (e, d) => events.push({ w: wall(), what: 'log', e, d }),
   now: () => Date.now(),
 });
 ctl.slideState({ playing: true, slide: s0, total: show.total });

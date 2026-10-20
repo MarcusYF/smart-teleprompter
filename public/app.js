@@ -324,6 +324,18 @@ async function loadSample(name, ask = true) {
   loadIntoEditor({ id: null, title: '', lang: 'auto', text });
 }
 
+// "Imported notes from 14 slides; 55 clicks placed on 13 slides ..."
+function importSummary(j) {
+  const parts = [t('imported')(j.slides.length)];
+  const b = j.builds;
+  if (b) {
+    if (b.placed) parts.push(t('clicksPlaced')(b.placed, b.slides));
+    if (b.mismatch.length) parts.push(t('clicksMismatch')(b.mismatch));
+    if (b.unsaved) parts.push(t('clicksUnsaved'));
+  } else if (j.slides.length) parts.push(t('clicksUnknown'));
+  return parts.join(uiLang() === 'zh' ? '；' : '; ');
+}
+
 async function importKeynote() {
   editorMsg(t('importing'));
   try {
@@ -332,7 +344,7 @@ async function importKeynote() {
     if (scriptEl.value.trim() && !confirm(uiLang() === 'zh' ? '用 Keynote 备注替换当前稿件？' : 'Replace the current script with Keynote notes?')) return editorMsg('');
     loadIntoEditor({ id: null, title: deckName(j.doc), lang: 'auto', text: j.script, deck: deckName(j.doc), deckId: j.docId });
     S.importedSlides = j.slides;
-    editorMsg(t('imported')(j.slides.length));
+    editorMsg(importSummary(j));
   } catch (err) {
     editorMsg(t('importFail') + err.message);
   }
@@ -352,7 +364,7 @@ async function importPlaying() {
     S.importedSlides = j.slides;
     startPrompter();
     if (wasListening) startListening();
-    toast('▶', t('imported')(j.slides.length), { ttl: 3000 });
+    toast('▶', importSummary(j), { ttl: 5000 });
   } catch (err) {
     toast('!', t('importFail') + err.message, { warn: true, ttl: 6000 });
   }
@@ -413,7 +425,7 @@ function openDoc(doc) {
   if (!S.renderer) {
     S.renderer = new Renderer({
       stage: $('#stage'), scroller: $('#scroller'), content: $('#content'),
-      onPick: (tok) => S.follower && S.follower.jumpTo(tok),
+      onPick: (tok) => manualPosition(tok),
     });
   }
   S.renderer.readingLine = settings.readingLine;
@@ -429,6 +441,7 @@ function openDoc(doc) {
     },
     range: (n) => slideRange(n),
     markers: (n) => slides().markers(n),
+    clicks: (n) => deckClicks(n),
     log: (event, detail) => clientLog(event, detail),
     onChange: () => {
       if (S.openingDoc || S.doc !== doc) return;
@@ -519,7 +532,7 @@ function onView(v) {
     if (!S.mustReminded.has(p.idx) && S.doc.phrases.some(ph => ph.para === p.idx && S.follower.skipped.has(ph.idx))) {
       S.mustReminded.add(p.idx);
       toast('!', (uiLang() === 'zh' ? '必讲段落有遗漏：' : 'Required passage skipped: ') + shorten(p.text, 80), { warn: true, ttl: 12000,
-        actions: [{ label: uiLang() === 'zh' ? '回到此处' : 'Return here', run: () => S.follower.jumpTo(p.tokStart) }] });
+        actions: [{ label: uiLang() === 'zh' ? '回到此处' : 'Return here', run: () => S.follower.jumpTo(p.tokStart) }] }).classList.add('reminder');
     }
   }
   if (S.semantic && S.listening) S.semantic.check();
@@ -621,8 +634,16 @@ setInterval(() => {
   if (S.listening) $('#chip-timer').textContent = timerText(S.follower.view(now));
   if (S.listening && !S.watchdogDone && now - S.listenStartedAt > 12000) {
     S.watchdogDone = true;
-    if (!S.recogAt) {
-      const msg = S.heardAt ? t('noRecognition') : t('noAudio');
+    const native = S.engine && S.engine.name === 'native';
+    if (!S.recogAt && !S.heardAt && native && !S.micRetried) {
+      // A stalled microphone (typically a Bluetooth headset switching to its
+      // microphone mode) usually works on a second start: retry once quietly.
+      S.micRetried = true;
+      clientLog('watchdog', 'no-sound-restart');
+      stopListening();
+      setTimeout(() => startListening(), 400);
+    } else if (!S.recogAt) {
+      const msg = S.heardAt ? t(native ? 'noRecognitionNative' : 'noRecognition') : t(native ? 'noAudioNative' : 'noAudio');
       toast('!', msg, { warn: true, ttl: 15000 });
       clientLog('watchdog', S.heardAt ? 'sound-but-no-text' : 'no-sound');
     }
@@ -716,7 +737,25 @@ function onSkipReminder(r) {
       { label: t('goBack'), run: () => S.follower.jumpTo(target) },
       { label: t('dismiss'), run: () => {} },
     ],
-  });
+  }).classList.add('reminder');
+}
+
+// The speaker sets the position by hand (a click on the text, arrow keys):
+// "I am here". It overrides the automatic position. Sentences passed over
+// are not missed (their reminders go away), and the slide show catches up:
+// every build marked up to here, and the turns of the slides in between.
+function manualPosition(tok) {
+  const f = S.follower;
+  if (!f) return;
+  const forward = tok > f.pos;
+  // the show first, so the follower's move does not start a slower catch-up
+  const driven = forward && S.builds && canDriveSlides() ? S.builds.seek(tok) : false;
+  f.overrideTo(tok);
+  if (forward) {
+    S.lastReminder = null;
+    for (const e of document.querySelectorAll('#toasts .toast.reminder')) e.remove();
+  }
+  if (driven) clientLog('manual-position', { slide: S.builds.slide });
 }
 
 // -------------------------------------------------------------- engines
@@ -843,6 +882,7 @@ function onSpeech(kind, text) {
   if (!S.follower || !S.listening || !S.engine) return;
   if (!S.recogAt && text && text.trim() && S.engine && S.engine.name !== 'sim') {
     S.recogAt = Date.now();
+    S.micRetried = false;
     toast('🎙', t('recognizing'), { ttl: 2000 });
     clientLog('first-result', S.engine.name);
   }
@@ -950,6 +990,32 @@ function slideRange(n) {
   return S.doc ? slides().range(n) : null;
 }
 
+// The deck's build count per slide, read from the saved Keynote file: the
+// controller then knows which clicks are builds and which turn the slide.
+// Unknown (null) for other apps and for a deck with unsaved changes.
+async function refreshDeckBuilds(st) {
+  const key = deckKey(st);
+  if (!key || st.source !== 'keynote' || S.deckBuildsLoading === key) return;
+  S.deckBuildsLoading = key;
+  try {
+    const j = await (await fetch('/api/slides/builds')).json();
+    if (deckKey(S.slide) !== key) return;
+    const same = j.docId && st.docId ? j.docId === st.docId : j.doc === st.doc;
+    const ok = !j.error && same && !j.unsaved && Array.isArray(j.slides);
+    S.deckBuilds = { key, clicks: ok ? new Map(j.slides.map((x) => [x.n, x.clicks])) : null };
+    S.builds?.refreshDeck();
+  } catch {
+    // unknown counts: the controller works as without them
+  } finally {
+    if (S.deckBuildsLoading === key) S.deckBuildsLoading = null;
+  }
+}
+
+function deckClicks(n) {
+  const d = S.deckBuilds;
+  return d && d.clicks && d.key === deckKey(S.slide) ? d.clicks.get(n) ?? null : null;
+}
+
 function onSlideState(st, initial = false) {
   const deckChanged = !!(deckKey(S.slide) && deckKey(st) && (deckKey(st) !== deckKey(S.slide) || st.source !== S.slide.source));
   const prev = S.slide ? S.slide.slide : null;
@@ -987,6 +1053,8 @@ function onSlideState(st, initial = false) {
     S.accessHinted = true;
     toast('▶', t('keysNeedAccess'), { ttl: 12000, warn: true, actions: [{ label: t('askAccess'), run: () => postShell({ type: 'cmd', cmd: 'ask-input-access' }) }] });
   }
+  // build counts for this deck (again when a show starts: it may have been saved since)
+  if (st.source === 'keynote' && deckKey(st) && (S.deckBuilds?.key !== deckKey(st) || (st.playing && !wasPlaying))) refreshDeckBuilds(st);
   // the build controller first, so the follower's slide move finds it on the new slide
   if (S.builds) S.builds.slideState(slideAppControllable() ? st : { playing: false });
   const saved = S.pendingBuildRestore;
@@ -1452,20 +1520,20 @@ document.addEventListener('keydown', (e) => {
       // step through what is visible (points, bullets, headings)
       const starts = S.renderer.itemStarts();
       const next = fwd ? starts.find((x) => x > f.pos) : [...starts].reverse().find((x) => x < f.pos);
-      if (next !== undefined) f.jumpTo(next);
+      if (next !== undefined) manualPosition(next);
     } else {
       const ph = doc.phrases[fwd ? Math.min(doc.phrases.length - 1, cur + 1) : Math.max(0, cur - 1)];
-      f.jumpTo(ph.tokStart);
+      manualPosition(ph.tokStart);
     }
   } else if (k === 'ArrowDown') {
     e.preventDefault();
     const para = doc.paras[doc.phrases[cur].para + 1];
-    if (para) f.jumpTo(para.tokStart);
+    if (para) manualPosition(para.tokStart);
   } else if (k === 'ArrowUp') {
     e.preventDefault();
     const pi = doc.phrases[cur].para;
     const para = doc.paras[f.pos > doc.paras[pi].tokStart + 2 ? pi : Math.max(0, pi - 1)];
-    f.jumpTo(para.tokStart);
+    manualPosition(para.tokStart);
   } else if (k === ',') setDetail(settings.detail - 0.1);
   else if (k === '.') setDetail(settings.detail + 0.1);
   else if (k === '[') setLevel(S.level - 1);

@@ -62,6 +62,20 @@ function onlyBuildCues(line) {
   return inner.length > 0 && inner.every((t) => buildCue(t));
 }
 
+// The clicks a text marks: [{count, trailing}]; trailing when nothing spoken
+// follows the marker (it is then the slide's turn, not a build).
+export function markedClicks(text) {
+  const s = normalizeBuildMarkers(String(text || ''));
+  const out = [];
+  for (const m of s.matchAll(/\[\[([^\]]*)\]\]/g)) {
+    const c = buildCue(m[1]);
+    if (!c) continue;
+    const rest = s.slice(m.index + m[0].length).replace(/^\s*\/\/.*$/gm, '').replace(/\[\[[^\]]*\]\]/g, '');
+    out.push({ count: c.count, trailing: !/[\p{L}\p{N}]/u.test(rest) });
+  }
+  return out;
+}
+
 function unitLen(ps) {
   return ps.reduce((n, p) => n + (p.kind === 'han' || p.kind === 'word' || p.kind === 'num' ? 1 : p.kind === 'math' && p.toks ? 2 : 0), 0);
 }

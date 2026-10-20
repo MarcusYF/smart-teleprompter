@@ -133,9 +133,22 @@ const routes = {
   'GET /api/slides/import': async () => {
     const data = await slides.importKeynote();
     if (data.error) return data;
-    data.slides = data.slides.map((s) => ({ ...s, title: cleanSlideText(s.title), body: cleanSlideText(s.body), notes: cleanSlideText(s.notes) }));
-    return { ...data, script: scriptFromSlides(data.slides) };
+    const builds = data.builds;
+    data.slides = data.slides.map((s) => {
+      const b = builds ? builds.find((x) => x.n === s.n) : null;
+      return { ...s, title: cleanSlideText(s.title), body: cleanSlideText(s.body), notes: cleanSlideText(s.notes), ...(b ? { clicks: b.clicks, steps: b.steps } : {}) };
+    });
+    const stats = { placed: 0, slides: 0, mismatch: [] };
+    const script = scriptFromSlides(data.slides, stats);
+    return {
+      doc: data.doc,
+      docId: data.docId,
+      slides: data.slides.map(({ steps, ...s }) => s),
+      script,
+      builds: builds ? { ...stats, unsaved: !!data.modified } : null,
+    };
   },
+  'GET /api/slides/builds': async () => slides.keynoteBuilds(),
   'POST /api/slides/align': async (body, _req, signal) => {
     const doc = parseScript(body.text || '', { lang: body.lang });
     return alignSlides(doc, body.slides || [], { signal });

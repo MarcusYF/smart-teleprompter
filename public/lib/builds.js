@@ -10,6 +10,18 @@
 // markers), it clicks again, a few times at most. A marker at the very end of
 // a slide's text is that slide's turn: it is sent once, as the advance.
 //
+// A speaker who stops a few words short of a slide's end (the recognizer
+// missed them, or they were left out) and pauses also turns the slide.
+//
+// When the deck's build count per slide is known (read from the saved .key
+// file), markers beyond it are ignored (the extra click would turn the slide
+// before the speaker gets there), a hand click is known to be a build or the
+// turn, and an advance may click through every build the script does not mark.
+//
+// A click on the script is the speaker saying "I am here" (seek()): the show
+// catches up at once, every build marked up to that point and the turns of
+// the slides in between, quickly one after another.
+//
 // Manual control keeps working: the native shell reports clicker, keyboard
 // and mouse input during the show (manual()), which consumes or restores
 // markers so speech and hand never click the same build twice. Going back to
@@ -21,10 +33,12 @@
 export const BUILD_DEFAULTS = {
   lead: 1,          // fire when all but this many tokens before the marker are read
   gapMs: 450,       // between two clicks we send
+  catchUpGapMs: 150, // between the clicks that catch up with a manual jump
   verifyMs: 1600,   // wait this long (after the send completed) for the slide to change
   maxExtra: 6,      // extra clicks to finish a slide whose builds outnumber the markers
   blipMs: 1500,     // a show that "stops" and plays again on the same slide this fast never stopped
   farSlides: 60,    // how far to look for the next slide that has text
+  nearEnd: { en: 3, zh: 6 }, // tokens short of a slide's end that a pause still turns
 };
 
 // Slide geometry shared by the app and the tests: where each slide's text is
@@ -71,12 +85,14 @@ export function slideIndex(doc, slideMap = null) {
 export class BuildController {
   // opts.send(action) -> Promise; opts.range(n) -> {tokStart, tokEnd} | null
   // opts.markers(n) -> [{idx, tok, count}] on slide n (script order)
+  // opts.clicks(n) -> the deck's build count on slide n, or null if unknown
   constructor(doc, opts = {}) {
     this.doc = doc;
     this.O = { ...BUILD_DEFAULTS, ...(opts.options || {}) };
     this.send = opts.send || (async () => {});
     this.range = opts.range || (() => null);
     this.markersOf = opts.markers || (() => []);
+    this.clicksOf = opts.clicks || (() => null);
     this.log = opts.log || (() => {});
     this.now = opts.now || (() => Date.now());
     this.onChange = opts.onChange || (() => {});
@@ -90,6 +106,7 @@ export class BuildController {
     this.total = null;
     this.listening = false;
     this.disposed = false;
+    this.seekTarget = null; // a manual jump the show is catching up with
     this.generation = 0;
     this.inFlight = null;
     this.error = null;
@@ -120,6 +137,7 @@ export class BuildController {
     if (!on) {
       this._cancelQueued();
       this.pendingAdvance = null;
+      this.seekTarget = null;
     }
   }
 
@@ -143,9 +161,33 @@ export class BuildController {
     this.error = null;
     this.queue = [];
     this.slide = n;
+    this._loadMarks(n);
+    // clicks of this slide already shown (a hand click that came right after
+    // our advance landed on this slide)
+    this.done = Math.min(carry, this.marks.length);
+    this.handBuilds = this.known != null ? Math.max(0, Math.min(carry, this.known) - this.marks.length) : 0;
+    this.manualSlide = how === 'back'; // the speaker took this slide over
+    this.pendingAdvance = null;
+    this.advanced = carry > (this.known ?? this.marks.length);
+    this.handTurnAt = null;
+    this.enteredAt = this.now();
+    this.startPos = null;     // first speech position on this slide
+    this.lastPos = null;
+    this.lastStatus = null;
+    this.extra = 0;
+    this.resync = false;
+    this.stoppedAt = null;
+    this.queue = this.queue.filter((q) => q.slide === n);
+    this.onChange();
+  }
+
+  // This slide's clicks: one entry per click (a "[click x2]" marker is two
+  // clicks at one place); a marker at the very end of the slide's text is
+  // the slide's turn. With the deck's build count known, markers past it are
+  // dropped: their click would turn the slide early (the end of the text
+  // turns it instead).
+  _loadMarks(n) {
     const r = n != null ? this.range(n) : null;
-    // one entry per click: a "[click x2]" marker is two clicks at one place;
-    // a marker at the very end of the slide's text is the slide's turn
     this.marks = [];
     if (n != null) {
       for (const m of this.markersOf(n)) {
@@ -154,20 +196,25 @@ export class BuildController {
         }
       }
     }
-    // clicks of this slide already shown (a hand click that came right after
-    // our advance landed on this slide)
-    this.done = Math.min(carry, this.marks.length);
-    this.manualSlide = how === 'back'; // the speaker took this slide over
-    this.pendingAdvance = null;
-    this.advanced = carry > this.marks.length;
-    this.handTurnAt = null;
-    this.enteredAt = this.now();
-    this.startPos = null;     // first speech position on this slide
-    this.lastPos = null;
-    this.extra = 0;
-    this.resync = false;
-    this.stoppedAt = null;
-    this.queue = this.queue.filter((q) => q.slide === n);
+    const known = n != null ? this.clicksOf(n) : null;
+    this.known = Number.isInteger(known) && known >= 0 ? known : null;
+    this.capped = 0;
+    if (this.known != null && this.marks.length > this.known) {
+      this.capped = this.marks.length - this.known;
+      this.marks.length = this.known;
+    }
+  }
+
+  // The deck's build counts arrived or changed: apply them to this slide
+  // without forgetting what it has shown.
+  refreshDeck() {
+    if (this.slide == null) return;
+    const old = this.marks;
+    const shown = this.done + this.handBuilds;
+    this._loadMarks(this.slide);
+    this.marks.forEach((m, i) => { if (old[i] && old[i].idx === m.idx) m.rearm = old[i].rearm; });
+    this.done = Math.min(this.done, this.marks.length);
+    this.handBuilds = this.known != null ? Math.max(0, Math.min(shown, this.known) - this.done) : 0;
     this.onChange();
   }
 
@@ -187,6 +234,7 @@ export class BuildController {
         this.stoppedSlide = this.slide;
         this._cancelQueued();
         this.pendingAdvance = null;
+        this.seekTarget = null;
         this.onChange();
       } else if (n != null && n !== this.slide) {
         this._enter(n);
@@ -207,8 +255,24 @@ export class BuildController {
     if (n === this.slide) return;
     const pend = this.pendingAdvance;
     if (pend) this.log('advance-ok', { from: pend.from, to: n, extra: this.extra, carry: pend.carry || 0 });
+    else if (this.listening && this.slide != null) {
+      // diagnosis of a turn the speech did not make: where the speech was
+      // on the slide, and what drove the show (no words are logged)
+      const r = this.range(this.slide);
+      this.log('slide-change', {
+        from: this.slide, to: n,
+        by: this.lastManualAt != null && this.now() - this.lastManualAt < 4000 ? 'hand' : 'other',
+        left: r && this.lastPos != null ? r.tokEnd - this.lastPos : null,
+        len: r ? r.tokEnd - r.tokStart : null,
+        status: this.lastStatus, shown: this.done, marks: this.marks.length,
+        deck: this.known, manualSlide: this.manualSlide, advanced: this.advanced,
+      });
+    }
     const back = this.slide != null && n < this.slide;
+    if (back) this.seekTarget = null;
     this._enter(n, back ? 'back' : 'forward', !back && pend && pend.from === this.slide ? pend.carry || 0 : 0);
+    // catching up with a manual jump: on to the next slide's builds
+    if (this.seekTarget != null) this._seekStep();
   }
 
   // After a page reload in the middle of a show: what had been shown.
@@ -235,6 +299,9 @@ export class BuildController {
         pend.carry = (pend.carry || 0) + 1;
       } else if (this.done < this.marks.length) {
         this.done++;
+      } else if (this.known != null && this.done + this.handBuilds < this.known) {
+        // a build the script has no marker for
+        this.handBuilds++;
       } else {
         // every marked build is out: this click turns the slide (or shows a
         // build the script has no marker for; tick() checks which)
@@ -245,14 +312,18 @@ export class BuildController {
       if (pend) pend.handled = true;
       this.lastManualAt = now;
     } else if (kind === 'prev-build') {
+      this.seekTarget = null;
       this._cancelQueued();
-      if (this.done > 0) {
+      if (this.handBuilds > 0) {
+        this.handBuilds--;
+      } else if (this.done > 0) {
         this.done--;
         // shown again only if the speaker reads up to it again
         this.marks[this.done].rearm = true;
       }
       this.lastManualAt = now;
     } else if (kind === 'prev-slide' || kind === 'next-slide' || kind === 'jump') {
+      this.seekTarget = null;
       this._cancelQueued();
       this.lastManualAt = now;
     }
@@ -298,6 +369,8 @@ export class BuildController {
     if (pos < r.tokStart || pos >= this._farLimit(this.slide)) return;
     if (this.startPos == null) this.startPos = pos;
     this.lastPos = pos;
+    this.lastStatus = v.status;
+    if (this.seekTarget != null) return; // a manual jump is being caught up
     if (this.resync) {
       // back on after a pause: what was passed in the meantime stays as is
       this.resync = false;
@@ -319,22 +392,93 @@ export class BuildController {
         if (m.trailing && this.done >= this.marks.length && this.advance && !this.advanced) {
           // the slide's last marker ends its text: it is the turn
           this.advanced = true;
-          this.pendingAdvance = { from: this.slide, at: null, handled: false };
+          this.pendingAdvance = { from: this.slide, at: null, handled: false, budget: this._turnBudget() };
           this._queue('advance', m.idx);
         } else {
           this._queue('build', m.idx);
         }
       }
     }
-    // the end of this slide's text turns the slide (never past the last one)
+    // the end of this slide's text turns the slide (never past the last
+    // one); so does a pause a few words short of it
+    const len = r.tokEnd - r.tokStart;
+    const near = Math.min(this.O.nearEnd?.[this.doc.lang] ?? 3, Math.floor(len / 4));
+    const atEnd = pos >= r.tokEnd - 1 || (v.status === 'paused' && pos >= r.tokEnd - Math.max(1, near));
     if (this.advance && !this.advanced && this.done >= this.marks.length &&
-        r.tokEnd < this.doc.tokens.length && r.tokEnd - r.tokStart >= 2 &&
+        r.tokEnd < this.doc.tokens.length && len >= 2 &&
         !(this.total != null && this.slide >= this.total) &&
-        pos >= r.tokEnd - 1 && pos > this.startPos) {
+        atEnd && pos > this.startPos) {
       this.advanced = true;
-      this.pendingAdvance = { from: this.slide, at: null, handled: false };
+      this.pendingAdvance = { from: this.slide, at: null, handled: false, budget: this._turnBudget() };
+      if (pos < r.tokEnd - 1) this.log('advance-near-end', { slide: this.slide, left: r.tokEnd - pos });
       this._queue('advance');
     }
+  }
+
+  // ------------------------------------------------------------- manual jump
+
+  // The speaker set the script position by hand (a click on the text). The
+  // show catches up: every build marked up to `target` and, when it lies on
+  // a later slide, the rest of this slide and the turns in between. A
+  // position behind the current slide only moves the text. Returns whether
+  // the show will be driven.
+  seek(target) {
+    if (this.disposed || this.error || !this.listening || !this.playing || this.slide == null) return false;
+    const r = this.range(this.slide);
+    if (!r || target < r.tokStart) return false;
+    this.seekTarget = target;
+    this.resync = false;
+    this.handTurnAt = null;
+    this.log('seek', { slide: this.slide, into: target >= r.tokEnd ? 'later-slide' : 'this-slide' });
+    this._seekStep();
+    return true;
+  }
+
+  _seekStep() {
+    const target = this.seekTarget;
+    if (target == null || this.slide == null || !this.playing) return;
+    const r = this.range(this.slide);
+    if (!r || target < r.tokStart) {
+      this.seekTarget = null;
+      return;
+    }
+    // the hand chose this place: the slide is no longer the speaker's own
+    this.manualSlide = false;
+    const last = r.tokEnd >= this.doc.tokens.length || (this.total != null && this.slide >= this.total);
+    const beyond = target >= r.tokEnd && !last;
+    while (this.done < this.marks.length) {
+      const m = this.marks[this.done];
+      if (m.trailing || (!beyond && target < m.tok)) break;
+      m.rearm = false;
+      this.done++;
+      if (this.builds) this._queue('build', m.idx, true);
+    }
+    if (!beyond || !this.advance) {
+      // arrived: speech drives the show from here
+      this.seekTarget = null;
+      this.startPos = this.lastPos = Math.min(target, r.tokEnd);
+      this.onChange();
+      return;
+    }
+    if (this.pendingAdvance && this.pendingAdvance.from === this.slide) return; // a turn is on its way
+    // the rest of this slide: builds without markers (when the deck says how
+    // many), then the turn
+    this.done = this.marks.length;
+    const unmarked = this.known != null ? Math.max(0, this.known - this.done - this.handBuilds) : 0;
+    for (let k = 0; k < unmarked; k++) {
+      this.handBuilds++;
+      this._queue('build', null, true);
+    }
+    this.advanced = true;
+    this.pendingAdvance = { from: this.slide, at: null, handled: false, budget: this._turnBudget() };
+    this._queue('advance', null, true);
+  }
+
+  // Extra clicks an advance may need: with the deck's build count known,
+  // one per build the script does not mark (and one spare).
+  _turnBudget() {
+    const unmarked = this.known != null ? Math.max(0, this.known - this.done - this.handBuilds) : 0;
+    return Math.max(this.O.maxExtra, unmarked + 1);
   }
 
   // Periodic: confirm that an advance changed the slide; click again if not.
@@ -349,13 +493,14 @@ export class BuildController {
     if (this.handTurnAt != null && now - this.handTurnAt >= this.O.verifyMs && this.playing) {
       this.handTurnAt = null;
       const r = this.slide != null ? this.range(this.slide) : null;
-      if (!this.pendingAdvance && r && this.lastPos != null && this.lastPos < r.tokEnd - 1) this.advanced = false;
+      // (no speech on this slide yet: it was a build too)
+      if (!this.pendingAdvance && r && (this.lastPos == null || this.lastPos < r.tokEnd - 1)) this.advanced = false;
     }
     const p = this.pendingAdvance;
     if (!p || p.at == null || !this.playing || p.handled || this.manualSlide) return;
     if (this.slide !== p.from) return;
     if (now - p.at < this.O.verifyMs || this.queue.length || this.sending) return;
-    if (!listening || this.extra >= this.O.maxExtra) {
+    if (!listening || this.extra >= (p.budget ?? this.O.maxExtra)) {
       this.log('advance-gave-up', { slide: p.from, extra: this.extra });
       this.pendingAdvance = null;
       return;
@@ -368,8 +513,8 @@ export class BuildController {
 
   // ------------------------------------------------------------- output
 
-  _queue(kind, idx) {
-    this.queue.push({ kind, idx, count: idx != null ? 1 : 0, slide: this.slide, generation: this.generation });
+  _queue(kind, idx, fast = false) {
+    this.queue.push({ kind, idx, count: idx != null ? 1 : 0, slide: this.slide, generation: this.generation, fast });
     this.onChange();
     this._pump();
   }
@@ -378,7 +523,7 @@ export class BuildController {
     if (this.sending) return;
     while (this.queue.length && !this.disposed) {
       if (!this.listening || this.error || !this.playing) { this._cancelQueued(); break; }
-      const wait = this.lastSentAt + this.O.gapMs - this.now();
+      const wait = this.lastSentAt + (this.queue[0].fast ? this.O.catchUpGapMs : this.O.gapMs) - this.now();
       if (wait > 0) {
         this.sending = true;
         await new Promise((res) => setTimeout(res, wait));
@@ -403,6 +548,7 @@ export class BuildController {
           if (q.count && this.done > 0) this.done--;
           this.pendingAdvance = null;
           this.advanced = false;
+          this.seekTarget = null;
           this.error = String(err && err.message || err);
         }
       }

@@ -37,6 +37,12 @@ final class PrompterPanel: NSPanel {
     }
 }
 
+// While presenting, the panel never becomes key (the keyboard stays with the
+// slide show); a click on the script must still reach the page at once.
+final class PrompterWebView: WKWebView {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
 enum Layout: String, CaseIterable {
     case notes, full, bottom, right, free
     var title: String {
@@ -128,7 +134,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKSc
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ app: NSApplication) -> Bool { true }
+    // The prompter window is an NSPanel, which AppKit does not count as a
+    // window: with "terminate after last window closed", closing any dialog
+    // (a JS confirm's NSAlert) quit the app. Quit when the prompter closes.
+    func applicationShouldTerminateAfterLastWindowClosed(_ app: NSApplication) -> Bool { false }
+
+    func windowWillClose(_ note: Notification) {
+        if (note.object as? NSWindow) === panel { NSApp.terminate(nil) }
+    }
 
     func applicationShouldHandleReopen(_ app: NSApplication, hasVisibleWindows: Bool) -> Bool {
         panel.makeKeyAndOrderFront(nil)
@@ -264,7 +277,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKSc
         let config = WKWebViewConfiguration()
         config.userContentController.add(self, name: "tp")
         config.websiteDataStore = .default()
-        web = WKWebView(frame: panel.contentView!.bounds, configuration: config)
+        web = PrompterWebView(frame: panel.contentView!.bounds, configuration: config)
         web.autoresizingMask = [.width, .height]
         web.uiDelegate = self
         web.navigationDelegate = self
@@ -564,14 +577,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKSc
         a.messageText = message
         a.addButton(withTitle: "确定")
         a.addButton(withTitle: "取消")
-        completionHandler(a.runModal() == .alertFirstButtonReturn)
+        completionHandler(runDialog(a) == .alertFirstButtonReturn)
     }
 
     func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping () -> Void) {
         let a = NSAlert()
         a.messageText = message
-        a.runModal()
+        runDialog(a)
         completionHandler()
+    }
+
+    // A dialog shows above the prompter, which floats above a slide show
+    // while presenting.
+    @discardableResult
+    func runDialog(_ a: NSAlert) -> NSApplication.ModalResponse {
+        a.layout()
+        if panel.level.rawValue >= NSWindow.Level.modalPanel.rawValue {
+            a.window.level = NSWindow.Level(rawValue: panel.level.rawValue + 1)
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        return a.runModal()
     }
 
     // MARK: menus

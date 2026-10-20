@@ -5,6 +5,11 @@
 
 import { spawn, execFile } from 'node:child_process';
 import { EventEmitter } from 'node:events';
+import { statSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { readKeynoteBuilds } from './keynote-file.mjs';
+import { placeClicks } from '../public/lib/autoclick.js';
+import { markedClicks } from '../public/lib/script.js';
 
 const KEYNOTE_WATCH = String.raw`
 ObjC.import('Foundation');
@@ -68,7 +73,31 @@ const KEYNOTE_IMPORT = String.raw`
   });
   let docId = null;
   try { docId = String(doc.id()); } catch (e) {}
-  return JSON.stringify({ doc: doc.name(), docId, slides });
+  // the saved file holds the builds (AppleScript cannot see them)
+  let file = null;
+  try { const f = doc.file(); if (f) file = f.toString(); } catch (e) {}
+  let modified = false;
+  try { modified = !!doc.modified(); } catch (e) {}
+  return JSON.stringify({ doc: doc.name(), docId, file, modified, slides });
+})()
+`;
+
+// The front document's file, for its build counts.
+const KEYNOTE_FILE = String.raw`
+(() => {
+  for (const id of ['com.apple.Keynote', 'com.apple.iWork.Keynote']) {
+    const a = Application(id);
+    if (!a.running() || a.documents.length === 0) continue;
+    const doc = a.documents[0];
+    let docId = null;
+    try { docId = String(doc.id()); } catch (e) {}
+    let file = null;
+    try { const f = doc.file(); if (f) file = f.toString(); } catch (e) {}
+    let modified = false;
+    try { modified = !!doc.modified(); } catch (e) {}
+    return JSON.stringify({ doc: doc.name(), docId, file, modified, total: doc.slides.length });
+  }
+  return JSON.stringify({ error: 'Keynote has no open presentation.' });
 })()
 `;
 
@@ -214,7 +243,37 @@ export class Slides extends EventEmitter {
 
   async importKeynote() {
     const out = await osa(['-l', 'JavaScript', '-e', KEYNOTE_IMPORT], null, 60000);
-    return JSON.parse(out);
+    const data = JSON.parse(out);
+    if (!data.error) data.builds = this._readBuilds(data.file, data.slides.length);
+    delete data.file;
+    return data;
+  }
+
+  // Clicks per slide of the front Keynote document (from its saved file):
+  // {doc, docId, unsaved, slides: [{n, clicks}] | null}.
+  async keynoteBuilds() {
+    const info = JSON.parse(await osa(['-l', 'JavaScript', '-e', KEYNOTE_FILE], null, 8000));
+    if (info.error) return info;
+    const builds = this._readBuilds(info.file, info.total);
+    return { doc: info.doc, docId: info.docId, unsaved: !!info.modified, slides: builds ? builds.map((b) => ({ n: b.n, clicks: b.clicks })) : null };
+  }
+
+  // Builds read from the file, cached until it is saved again; null if the
+  // file is unreadable or does not have the open document's slides.
+  _readBuilds(file, total) {
+    if (!file) return null;
+    let key;
+    try {
+      // a package document changes inside, not its folder
+      const inner = [join(file, 'Index.zip'), join(file, 'Index', 'Document.iwa')].find((p) => existsSync(p));
+      const st = statSync(statSync(file).isDirectory() && inner ? inner : file);
+      key = `${file}|${st.mtimeMs}|${st.size}`;
+    } catch {
+      return null;
+    }
+    if (this.buildsCache?.key !== key) this.buildsCache = { key, builds: readKeynoteBuilds(file) };
+    const b = this.buildsCache.builds;
+    return b && b.length === total ? b : null;
   }
 
   async control(action, expected = null) {
@@ -246,9 +305,14 @@ export function cleanSlideText(t) {
   return String(t || '').replace(/\uFFFC/g, '').replace(/[ \t]+\n/g, '\n').trim();
 }
 
+const REFS_RE = /^\s*(\[\s*(sources?|references?|参考(资料|文献)?|来源)\s*\]|(sources?|references?|参考(资料|文献)?|来源)\s*[:：])\s*$/i;
+
 // Build a script from imported slides: one section per slide, notes as text.
 // A slide without notes shows its own text as a (not spoken) cue.
-export function scriptFromSlides(slides) {
+// Slides with build information ({steps}: what each click reveals) get
+// [click] markers where their notes have none; a slide whose markers do not
+// match its builds gets a warning cue. stats (optional) counts both.
+export function scriptFromSlides(slides, stats = null) {
   const out = [];
   for (const s of slides) {
     if (s.skipped) continue;
@@ -258,11 +322,29 @@ export function scriptFromSlides(slides) {
     if (notes) {
       // Reference blocks ("[Sources]", "Sources:", "References") are shown
       // as cues, not as text to follow.
-      let refs = false;
-      for (const line of notes.split('\n')) {
-        if (/^\s*(\[\s*(sources?|references?|参考(资料|文献)?|来源)\s*\]|(sources?|references?|参考(资料|文献)?|来源)\s*[:：])\s*$/i.test(line)) refs = true;
-        out.push(refs && line.trim() ? `// ${line.trim()}` : line);
+      const lines = notes.split('\n');
+      let cut = lines.findIndex((line) => REFS_RE.test(line));
+      if (cut < 0) cut = lines.length;
+      let spoken = lines.slice(0, cut).join('\n');
+      const steps = Array.isArray(s.steps) ? s.steps : null;
+      if (steps && steps.length) {
+        const marked = markedClicks(spoken);
+        if (!marked.length) {
+          const r = placeClicks(spoken, steps);
+          spoken = r.text;
+          if (stats && r.placed) { stats.placed += r.placed; stats.slides++; }
+        } else {
+          // the click after the last build turns the slide: one more marker
+          // than builds is the author's turn
+          const n = marked.filter((m) => !m.trailing).reduce((a, m) => a + m.count, 0);
+          if (n < steps.length || n > steps.length + 1) {
+            out.push(`// ⚠ Keynote has ${steps.length} build${steps.length > 1 ? 's' : ''} on this slide; these notes mark ${n} click${n === 1 ? '' : 's'}`);
+            if (stats) stats.mismatch.push(s.n);
+          }
+        }
       }
+      out.push(...spoken.split('\n'));
+      for (const line of lines.slice(cut)) out.push(line.trim() ? `// ${line.trim()}` : line);
     } else {
       const body = cleanSlideText(s.body).split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 4);
       out.push(...(body.length ? body.map((l) => `// ${l}`) : [`// (slide ${s.n}: no presenter notes)`]));

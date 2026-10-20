@@ -141,6 +141,106 @@ final class LockedDate: @unchecked Sendable {
     }
 }
 
+// The microphone: a fresh AVAudioEngine on the current default input each
+// time it starts, so a device change or a stalled device can be recovered.
+final class Mic: @unchecked Sendable {
+    private let format: AVAudioFormat
+    private let input: AsyncStream<AnalyzerInput>.Continuation
+    private let lock = NSLock()
+    private var engine: AVAudioEngine?
+    private var observer: NSObjectProtocol?
+    private var restartReason: String?
+    private let lastChange = LockedDate()
+    private let lastBuffer = LockedDate()
+    private let lastLevel = LockedDate()
+
+    init(format: AVAudioFormat, input: AsyncStream<AnalyzerInput>.Continuation) {
+        self.format = format
+        self.input = input
+    }
+
+    func silentFor() -> TimeInterval { lastBuffer.elapsed() }
+
+    func changePending() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return restartReason != nil
+    }
+
+    // A device change is acted on only once the device has settled: a
+    // Bluetooth headset switching to its microphone mode reports several
+    // changes in a row, and reopening it too early starts the switch again.
+    func takeRestartRequest() -> String? {
+        lock.lock(); defer { lock.unlock() }
+        guard let r = restartReason, lastChange.elapsed() >= 1.2 else { return nil }
+        restartReason = nil
+        return r
+    }
+
+    private func requestRestart(_ why: String) {
+        lock.lock(); restartReason = why; lock.unlock()
+        lastChange.touch()
+    }
+
+    // nil when audio is flowing (or about to), else why it could not start.
+    // fresh: build a new engine (a stalled one); otherwise reattach the
+    // existing engine to the device's new format, which keeps the input open
+    // (closing it lets a Bluetooth headset fall back to its music mode, and
+    // reopening it switches again: an endless loop of device changes).
+    func start(fresh: Bool = true) -> String? {
+        lock.lock(); defer { lock.unlock() }
+        let e: AVAudioEngine
+        if !fresh, let old = engine {
+            old.stop()
+            old.inputNode.removeTap(onBus: 0)
+            e = old
+        } else {
+            teardown()
+            e = AVAudioEngine()
+        }
+        let node = e.inputNode
+        let inFormat = node.outputFormat(forBus: 0)
+        guard inFormat.sampleRate > 0, inFormat.channelCount > 0 else { return "input device not ready" }
+        guard let conv = Converter(from: inFormat, to: format) else { return "cannot convert microphone audio" }
+        let input = self.input, lastBuffer = self.lastBuffer, lastLevel = self.lastLevel
+        node.installTap(onBus: 0, bufferSize: 2048, format: inFormat) { buf, _ in
+            lastBuffer.touch()
+            if lastLevel.elapsed() > 0.1 {
+                emit(["type": "level", "rms": rms(buf)])
+                lastLevel.touch()
+            }
+            if let c = conv.convert(buf) { input.yield(AnalyzerInput(buffer: c)) }
+        }
+        e.prepare()
+        do {
+            try e.start()
+        } catch {
+            node.removeTap(onBus: 0)
+            return "\(error)"
+        }
+        if engine !== e || observer == nil {
+            engine = e
+            if let o = observer { NotificationCenter.default.removeObserver(o) }
+            observer = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: e, queue: nil) { [weak self] _ in
+                self?.requestRestart("device-changed")
+            }
+        }
+        lastBuffer.touch() // grace period before silence counts
+        return nil
+    }
+
+    private func teardown() {
+        if let o = observer { NotificationCenter.default.removeObserver(o) }
+        observer = nil
+        engine?.inputNode.removeTap(onBus: 0)
+        engine?.stop()
+        engine = nil
+    }
+
+    func stopEngine() {
+        lock.lock(); teardown(); lock.unlock()
+    }
+}
+
 final class StopSignal: @unchecked Sendable {
     private var cont: CheckedContinuation<Void, Never>?
     private var fired = false
@@ -224,7 +324,6 @@ func run(_ o: Options) async -> Int32 {
         if !fileMode { stop.fire() }
     }
 
-    var engine: AVAudioEngine?
     if let path = o.file {
         emit(["type": "status", "state": "listening", "locale": bcp47(locale), "source": "file"])
         do {
@@ -264,55 +363,51 @@ func run(_ o: Options) async -> Int32 {
             }
         default: break
         }
-        let e = AVAudioEngine()
-        engine = e
-        // (Re)installs the microphone tap; called again when the input device
-        // changes (e.g. a headset or USB microphone is plugged in mid-talk).
-        let lastLevel = LockedDate()
-        func attach() -> Bool {
-            let node = e.inputNode
-            node.removeTap(onBus: 0)
-            let inFormat = node.outputFormat(forBus: 0)
-            guard inFormat.sampleRate > 0, let conv = Converter(from: inFormat, to: format) else { return false }
-            node.installTap(onBus: 0, bufferSize: 2048, format: inFormat) { buf, _ in
-                if lastLevel.elapsed() > 0.1 {
-                    emit(["type": "level", "rms": rms(buf)])
-                    lastLevel.touch()
-                }
-                if let c = conv.convert(buf) { input.yield(AnalyzerInput(buffer: c)) }
-            }
-            return true
+        let mic = Mic(format: format, input: input)
+        if let why = mic.start() {
+            // the first start can meet a device that is still switching (a
+            // Bluetooth headset turning on its microphone): the watchdog retries
+            emit(["type": "status", "state": "mic-waiting", "detail": why])
         }
-        guard attach() else {
-            emit(["type": "error", "code": "format", "message": "Cannot convert microphone audio."])
-            return 4
-        }
-        do {
-            e.prepare()
-            try e.start()
-        } catch {
-            emit(["type": "error", "code": "mic", "message": "\(error)"])
-            return 7
-        }
-        let observer = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: e, queue: .main) { _ in
-            e.stop()
-            if attach() {
-                e.prepare()
-                do {
-                    try e.start()
-                    emit(["type": "status", "state": "device-changed"])
-                } catch {
-                    emit(["type": "error", "code": "mic", "message": "Microphone restart failed: \(error)"])
-                }
-            }
-        }
-        defer { NotificationCenter.default.removeObserver(observer) }
         emit(["type": "status", "state": "listening", "locale": bcp47(locale), "source": "mic"])
+        // Watchdog: after a device change, or when no audio has arrived for a
+        // while (a headset switching modes, a device that went away), rebuild
+        // the audio engine on the current input device. The wait grows after
+        // repeated silent restarts so a dead input is not hammered.
+        Thread.detachNewThread {
+            var failures = 0
+            var silentRestarts = 0
+            var recent: [Date] = []
+            var warned = false
+            while !stop.isFired {
+                Thread.sleep(forTimeInterval: 0.5)
+                if stop.isFired { break }
+                let patience = min(3.0 * pow(2.0, Double(silentRestarts)), 20.0)
+                var reason = mic.takeRestartRequest()
+                if reason == nil && !mic.changePending() && mic.silentFor() > patience { reason = "no-audio" }
+                guard let why = reason else { continue }
+                // at most 4 restarts in 20 s, then wait
+                let now = Date()
+                recent = recent.filter { now.timeIntervalSince($0) < 20 }
+                if recent.count >= 4 { continue }
+                recent.append(now)
+                if let err = mic.start(fresh: why == "no-audio" || failures > 2) {
+                    failures += 1
+                    if failures == 20 && !warned {
+                        warned = true
+                        emit(["type": "error", "code": "mic", "message": "The microphone is not delivering audio (\(err)). Check System Settings › Sound › Input."])
+                    }
+                } else {
+                    failures = 0
+                    silentRestarts = why == "no-audio" ? silentRestarts + 1 : 0
+                    emit(["type": "status", "state": "mic-restarted", "reason": why])
+                }
+            }
+        }
         await stop.wait()
+        mic.stopEngine()
     }
 
-    engine?.inputNode.removeTap(onBus: 0)
-    engine?.stop()
     input.finish()
     try? await analyzer.finalizeAndFinishThroughEndOfInput()
     _ = await results.result
